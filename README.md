@@ -63,3 +63,37 @@ The entire flow is designed to feel **calm, professional, and trustworthy**, sim
 ### Voice & Telephony
 - **Twilio** – real outbound phone calls
 - **ElevenLabs** – low-latency text-to-speech
+
+### Architecture Choices
+- Single-page wizard instead of multi-route complexity
+- Deterministic logic over opaque AI for safety-critical decisions
+- Frontend-driven UX polish over backend-heavy design
+
+---
+
+## 🧩 Design Decisions (What this project demonstrates)
+
+- **Product sense**: knowing when *not* to add complexity  
+- **UX thinking**: no dead ends, no “refresh to continue”  
+- **Engineering judgment**: deterministic rules for healthcare safety  
+- **Pragmatism**: built for demo reliability, not hype  
+
+This project intentionally avoids:
+- speculative AI diagnoses  
+- unnecessary backend abstractions  
+- fragile multi-page flows  
+
+---
+
+## ⚠️ Disclaimer
+
+> **This application does not provide medical advice.**  
+> If symptoms are severe or feel unsafe, users are advised to seek emergency care or call emergency services immediately.
+
+---
+
+## 🚀 Running Locally
+
+```bash
+npm install
+npm run dev
