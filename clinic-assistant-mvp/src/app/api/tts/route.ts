@@ -12,7 +12,7 @@ export async function GET(request: Request) {
 
   const apiKey = getEnv("ELEVENLABS_API_KEY");
   const voiceId = getEnv("ELEVENLABS_VOICE_ID");
-  const modelId = getEnv("ELEVENLABS_MODEL_ID") || "eleven_multilingual_v2";
+  const modelId = getEnv("ELEVENLABS_MODEL_ID") || "eleven_flash_v2_5";
 
   if (!apiKey || !voiceId) {
     return NextResponse.json(
@@ -38,7 +38,15 @@ export async function GET(request: Request) {
   );
 
   if (!response.ok) {
-    return NextResponse.json({ error: "TTS failed." }, { status: 500 });
+    const details = await response.text();
+    console.error("ElevenLabs TTS failed", {
+      status: response.status,
+      body: details,
+    });
+    return NextResponse.json(
+      { error: "TTS failed.", details },
+      { status: 500 },
+    );
   }
 
   const audioBuffer = Buffer.from(await response.arrayBuffer());

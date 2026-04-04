@@ -7,9 +7,12 @@ type CallRequest = {
   symptomsSummary?: string;
   patientName?: string;
   healthCardNumber?: string;
+  phoneNumber?: string;
 };
 
 const DESTINATION_NUMBER = "+14385068854";
+
+const getEnv = (key: string) => process.env[key]?.trim() ?? "";
 
 const sanitizeForTts = (value: string, maxLength: number) =>
   value.replace(/\s+/g, " ").trim().slice(0, maxLength);
@@ -22,6 +25,7 @@ export async function POST(request: Request) {
     const symptomsSummary = sanitizeForTts(body.symptomsSummary ?? "", 160);
     const patientName = sanitizeForTts(body.patientName ?? "", 80);
     const healthCardNumber = sanitizeForTts(body.healthCardNumber ?? "", 40);
+    const phoneNumber = sanitizeForTts(body.phoneNumber ?? "", 30);
 
     if (
       !clinicName ||
@@ -39,10 +43,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    const fromNumber = process.env.TWILIO_PHONE_NUMBER;
-    const publicBaseUrl = process.env.PUBLIC_BASE_URL;
+    const accountSid = getEnv("TWILIO_ACCOUNT_SID");
+    const authToken = getEnv("TWILIO_AUTH_TOKEN");
+    const fromNumber = getEnv("TWILIO_PHONE_NUMBER");
+    const publicBaseUrl = getEnv("PUBLIC_BASE_URL");
 
     if (!accountSid || !authToken || !fromNumber || !publicBaseUrl) {
       return NextResponse.json(
@@ -60,16 +64,27 @@ export async function POST(request: Request) {
     callUrl.searchParams.set("step", "1");
     callUrl.searchParams.set("patientName", patientName);
     callUrl.searchParams.set("healthCardNumber", healthCardNumber);
+    callUrl.searchParams.set("phoneNumber", phoneNumber);
+    callUrl.searchParams.set("clinicName", clinicName);
     const call = await client.calls.create({
       to: DESTINATION_NUMBER,
       from: fromNumber,
       url: callUrl.toString(),
     });
 
-    return NextResponse.json({ success: true, callSid: call.sid });
-  } catch {
+    return NextResponse.json({
+      success: true,
+      callSid: call.sid,
+      destinationNumber: DESTINATION_NUMBER,
+    });
+  } catch (error) {
+    console.error("Twilio call route failed", error);
     return NextResponse.json(
-      { success: false, error: "Twilio call failed." },
+      {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Twilio call failed.",
+      },
       { status: 500 },
     );
   }

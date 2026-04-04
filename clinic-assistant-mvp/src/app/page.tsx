@@ -1,18 +1,33 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { BodyHeatmap } from "./components/body-heatmap";
+import type { BodyHeatmapEntry } from "./components/body-heatmap";
 import { useEffect, useRef, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import type { RefObject } from "react";
 import type { FormEvent } from "react";
 
 type Message = { id: string; role: "user" | "assistant"; content: string };
 
-type TriageResponse = {
+type TriageResult = {
   gravity_level: "LOW" | "MEDIUM" | "HIGH";
-  matched_symptoms: string[];
   recommendations: string[];
+  wait_care_tips: string[];
   emergency_warning: boolean;
   summary_paragraph: string;
+  assistant_message: string;
+  body_heatmap?: BodyHeatmapEntry[];
 };
+
+type TriageResponse =
+  | {
+      status: "needs_more_info";
+      assistant_message: string;
+    }
+  | ({
+      status: "final";
+    } & TriageResult);
 
 type Clinic = {
   id: string;
@@ -23,6 +38,15 @@ type Clinic = {
   lon: number;
   distance_km: number;
 };
+
+type LiveCallMessage = {
+  id: string;
+  role: "assistant" | "clinic";
+  content: string;
+  createdAt: number;
+};
+
+type ActiveStep = 1 | 2 | 3 | 4;
 
 const FALLBACK_CLINICS: Clinic[] = [
   {
@@ -54,40 +78,55 @@ const FALLBACK_CLINICS: Clinic[] = [
   },
 ];
 
+const SUGGESTED_SYMPTOM_PROMPTS = [
+  "I have had a fever and sore throat since yesterday.",
+  "I have sharp pain in my lower stomach.",
+  "My knee has been swollen and painful after a fall.",
+];
+
 export default function Home() {
   const [symptoms, setSymptoms] = useState("");
   const [location, setLocation] = useState("");
   const [patientName, setPatientName] = useState("");
   const [healthCardNumber, setHealthCardNumber] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [isEmergency, setIsEmergency] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  const [triage, setTriage] = useState<TriageResponse | null>(null);
+  const [triage, setTriage] = useState<TriageResult | null>(null);
   const [clinics, setClinics] = useState<Clinic[]>([]);
   const [isClinicsLoading, setIsClinicsLoading] = useState(false);
   const [clinicError, setClinicError] = useState<string | null>(null);
   const [locationWarning, setLocationWarning] = useState<string | null>(null);
   const [callingClinicId, setCallingClinicId] = useState<string | null>(null);
+  const [activeCallSid, setActiveCallSid] = useState<string | null>(null);
+  const [liveCallMessages, setLiveCallMessages] = useState<LiveCallMessage[]>([]);
+  const [isTranscriptLoading, setIsTranscriptLoading] = useState(false);
   const [appointment, setAppointment] = useState<{
     date: string;
     time: string;
     patientName: string;
+    clinicName: string;
+    smsStatus: "sent" | "failed";
+    smsError?: string;
   } | null>(null);
   const [isWaitingConfirmation, setIsWaitingConfirmation] = useState(false);
   const [uiStatus, setUiStatus] = useState<{
     type: "idle" | "loading" | "success" | "error";
     message?: string;
   }>({ type: "idle" });
+  const [activeStep, setActiveStep] = useState<ActiveStep>(1);
   const [viewState, setViewState] = useState<
-    "form" | "clinics" | "calling" | "confirmed"
+    "form" | "clinics" | "calling"
   >("form");
 
   const patientSectionRef = useRef<HTMLDivElement | null>(null);
   const symptomsSectionRef = useRef<HTMLFormElement | null>(null);
   const clinicsSectionRef = useRef<HTMLDivElement | null>(null);
-  const confirmedSectionRef = useRef<HTMLDivElement | null>(null);
   const patientNameInputRef = useRef<HTMLInputElement | null>(null);
   const symptomsInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const liveCallScrollRef = useRef<HTMLDivElement | null>(null);
+  const router = useRouter();
 
   const disclaimer =
     "This is not medical advice. If this is an emergency, call 911.";
@@ -103,6 +142,65 @@ export default function Home() {
 
   const appendAssistantMessage = (content: string) => {
     setMessages((prev) => [...prev, newMessage("assistant", content)]);
+  };
+
+  const resetStepThreeAndFour = () => {
+    setClinics([]);
+    setClinicError(null);
+    setLocationWarning(null);
+    setAppointment(null);
+    setIsWaitingConfirmation(false);
+    setCallingClinicId(null);
+    setActiveCallSid(null);
+    setLiveCallMessages([]);
+    setIsTranscriptLoading(false);
+    setViewState("form");
+  };
+
+  const resetFromStepOneChange = () => {
+    setMessages([]);
+    setTriage(null);
+    setSymptoms("");
+    setIsEmergency(false);
+    setUiStatus({ type: "idle" });
+    resetStepThreeAndFour();
+    setActiveStep(1);
+  };
+
+  const updateStepOneField = (
+    currentValue: string,
+    nextValue: string,
+    setter: Dispatch<SetStateAction<string>>,
+  ) => {
+    if (currentValue === nextValue) return;
+
+    const hasLaterState =
+      activeStep > 1 ||
+      messages.length > 0 ||
+      triage !== null ||
+      clinics.length > 0 ||
+      appointment !== null ||
+      isWaitingConfirmation;
+
+    if (hasLaterState) {
+      resetFromStepOneChange();
+    }
+
+    setter(nextValue);
+  };
+
+  const updateSymptomsDraft = (nextValue: string) => {
+    if (symptoms === nextValue) return;
+
+    const hasLaterState =
+      clinics.length > 0 || appointment !== null || isWaitingConfirmation;
+
+    if (hasLaterState) {
+      resetStepThreeAndFour();
+      setActiveStep(2);
+    }
+
+    setSymptoms(nextValue);
   };
 
   const fetchClinics = async (inputLocation: string) => {
@@ -190,13 +288,25 @@ export default function Home() {
       if (!response.ok) return false;
       const data = (await response.json()) as
         | { appointment: null }
-        | { date?: string; time?: string; patientName?: string };
+        | {
+            date?: string;
+            time?: string;
+            patientName?: string;
+            clinicName?: string;
+            smsStatus?: "sent" | "failed";
+            smsError?: string;
+          };
       if ("appointment" in data) return false;
-      if (!data.date || !data.time || !data.patientName) return false;
+      if (!data.date || !data.time || !data.patientName) {
+        return false;
+      }
       setAppointment({
         date: data.date,
         time: data.time,
         patientName: data.patientName,
+        clinicName: data.clinicName || "Selected clinic",
+        smsStatus: data.smsStatus || "failed",
+        smsError: data.smsError,
       });
       return true;
     } catch {
@@ -204,16 +314,43 @@ export default function Home() {
     }
   };
 
+  const fetchLiveCallTranscript = async (callSid: string) => {
+    try {
+      const response = await fetch(
+        `/api/call/transcript?callSid=${encodeURIComponent(callSid)}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) return;
+
+      const data = (await response.json()) as {
+        messages?: LiveCallMessage[];
+      };
+
+      setLiveCallMessages(Array.isArray(data.messages) ? data.messages : []);
+    } catch {
+      // Keep the last successful transcript on screen if polling fails briefly.
+    } finally {
+      setIsTranscriptLoading(false);
+    }
+  };
+
   const pollAppointment = async (attempt = 0) => {
     const found = await fetchAppointment();
     if (found) {
       setIsWaitingConfirmation(false);
-      setViewState("confirmed");
+      setActiveCallSid(null);
+      setLiveCallMessages([]);
+      setIsTranscriptLoading(false);
       setUiStatus({ type: "success", message: "Appointment confirmed ✓" });
+      router.replace("/confirmation");
       return;
     }
     if (attempt >= 20) {
       setIsWaitingConfirmation(false);
+      setActiveCallSid(null);
+      setLiveCallMessages([]);
+      setIsTranscriptLoading(false);
+      setActiveStep(3);
       setViewState("clinics");
       setUiStatus({
         type: "error",
@@ -228,15 +365,17 @@ export default function Home() {
 
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (isEmergency || isSending) return;
+    if (isSending) return;
     const trimmedSymptoms = symptoms.trim();
     if (!trimmedSymptoms) return;
 
-    const userContent = location.trim()
+    const hasConversation = messages.length > 0;
+    const userContent = !hasConversation && location.trim()
       ? `Symptoms: ${trimmedSymptoms}\nLocation: ${location.trim()}`
-      : `Symptoms: ${trimmedSymptoms}`;
+      : trimmedSymptoms;
 
-    setMessages((prev) => [...prev, newMessage("user", userContent)]);
+    const nextMessages = [...messages, newMessage("user", userContent)];
+    setMessages(nextMessages);
     setIsSending(true);
     setUiStatus({ type: "loading", message: "Assessing symptoms..." });
     setClinics([]);
@@ -245,45 +384,66 @@ export default function Home() {
     setAppointment(null);
     setIsWaitingConfirmation(false);
     setViewState("form");
-    setIsEmergency(false);
 
     try {
       const response = await fetch("/api/triage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          symptoms: trimmedSymptoms,
           location: location.trim(),
+          messages: nextMessages.map((message) => ({
+            role: message.role,
+            content: message.content,
+          })),
         }),
       });
 
-      const data = (await response.json()) as TriageResponse;
-      setTriage(data);
-
-      const recommendation =
-        data.recommendations?.[0] ??
-        "I can help you find a nearby clinic for next steps.";
-      const assistantContent = `${data.summary_paragraph}\n\nNext step: ${recommendation}`;
-      appendAssistantMessage(assistantContent);
-
-      if (data.gravity_level === "HIGH") {
-        setIsEmergency(true);
-        setUiStatus({
-          type: "error",
-          message: "Emergency warning. Please call 911.",
-        });
-        return;
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => null)) as
+          | { error?: string; details?: string }
+          | null;
+        throw new Error(
+          errorData?.details || errorData?.error || "Claude triage is unavailable right now.",
+        );
       }
 
-      await fetchClinics(location.trim());
-      setViewState("clinics");
-    } catch {
-      appendAssistantMessage(
-        "Thanks. I can help you find a clinic. In the next step, I'll ask a few questions and suggest nearby options.",
-      );
+      const data = (await response.json()) as TriageResponse;
+      appendAssistantMessage(data.assistant_message);
+
+      if (data.status === "final") {
+        setTriage({
+          gravity_level: data.gravity_level,
+          recommendations: data.recommendations,
+          wait_care_tips: data.wait_care_tips,
+          emergency_warning: data.emergency_warning,
+          summary_paragraph: data.summary_paragraph,
+          assistant_message: data.assistant_message,
+          body_heatmap: data.body_heatmap,
+        });
+        setIsEmergency(data.gravity_level === "HIGH" || data.emergency_warning);
+        setUiStatus({
+          type: data.gravity_level === "HIGH" ? "error" : "success",
+          message:
+            data.gravity_level === "HIGH"
+              ? "Emergency warning. Review advice before continuing."
+              : "Triage complete. Review advice before continuing.",
+        });
+      } else {
+        setTriage(null);
+        setIsEmergency(false);
+        setUiStatus({
+          type: "success",
+          message: "Claude asked a follow-up question.",
+        });
+      }
+    } catch (error) {
+      setTriage(null);
       setUiStatus({
         type: "error",
-        message: "Unable to reach triage. Please try again.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Claude triage is unavailable right now.",
       });
     } finally {
       setIsSending(false);
@@ -291,12 +451,23 @@ export default function Home() {
     }
   };
 
+  const handleContinueToClinics = async () => {
+    if (isClinicsLoading) return;
+    await fetchClinics(location.trim());
+    setActiveStep(3);
+    setViewState("clinics");
+  };
+
   const handleCallClinic = async (clinic: Clinic) => {
-    if (isEmergency || callingClinicId) return;
+    if (callingClinicId) return;
     setCallingClinicId(clinic.id);
     try {
       setAppointment(null);
       setIsWaitingConfirmation(false);
+      setActiveCallSid(null);
+      setLiveCallMessages([]);
+      setIsTranscriptLoading(true);
+      setActiveStep(3);
       setViewState("calling");
       setUiStatus({ type: "loading", message: "Calling clinic..." });
       fetch("/api/appointment/confirm", { method: "DELETE" }).catch(() => {});
@@ -312,6 +483,7 @@ export default function Home() {
           symptomsSummary,
           patientName: patientName.trim(),
           healthCardNumber: healthCardNumber.trim(),
+          phoneNumber: phoneNumber.trim(),
         }),
       });
 
@@ -319,25 +491,40 @@ export default function Home() {
         appendAssistantMessage(
           "Call failed. Check Twilio env vars and try again.",
         );
+        setActiveCallSid(null);
+        setLiveCallMessages([]);
+        setIsTranscriptLoading(false);
         setUiStatus({
           type: "error",
           message: "Call failed. Check Twilio env vars and try again.",
         });
+        setViewState("clinics");
         return;
       }
 
-      const data = (await response.json()) as { success?: boolean };
+      const data = (await response.json()) as {
+        success?: boolean;
+        callSid?: string;
+        destinationNumber?: string;
+      };
       if (data.success) {
+        setActiveCallSid(data.callSid ?? null);
+        setIsTranscriptLoading(Boolean(data.callSid));
         setIsWaitingConfirmation(true);
         setUiStatus({
           type: "loading",
-          message: "Listening for availability...",
+          message: data.destinationNumber
+            ? `Calling ${data.destinationNumber}...`
+            : "Listening for availability...",
         });
         void pollAppointment();
       } else {
         appendAssistantMessage(
           "Call failed. Check Twilio env vars and try again.",
         );
+        setActiveCallSid(null);
+        setLiveCallMessages([]);
+        setIsTranscriptLoading(false);
         setUiStatus({
           type: "error",
           message: "Call failed. Check Twilio env vars and try again.",
@@ -348,6 +535,9 @@ export default function Home() {
       appendAssistantMessage(
         "Call failed. Check Twilio env vars and try again.",
       );
+      setActiveCallSid(null);
+      setLiveCallMessages([]);
+      setIsTranscriptLoading(false);
       setUiStatus({
         type: "error",
         message: "Call failed. Check Twilio env vars and try again.",
@@ -359,7 +549,24 @@ export default function Home() {
   };
 
   const isIdentityReady =
-    patientName.trim().length > 0 && healthCardNumber.trim().length > 0;
+    patientName.trim().length > 0 &&
+    healthCardNumber.trim().length > 0 &&
+    phoneNumber.trim().length > 0;
+
+  const handleContinueToSymptoms = () => {
+    setActiveStep(2);
+    setViewState("form");
+  };
+
+  const handleBackToPatientInfo = () => {
+    setActiveStep(1);
+    setViewState("form");
+  };
+
+  const handleBackToSymptoms = () => {
+    setActiveStep(2);
+    setViewState("form");
+  };
 
   const mainSection = (() => {
     const card =
@@ -368,85 +575,208 @@ export default function Home() {
     const sectionHint = "text-xs text-slate-500";
     const primaryButton =
       "inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-teal-600 to-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:shadow-lg hover:scale-[1.01] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/70 disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-300";
+    const secondaryButton =
+      "inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300";
 
     const leftColumn = (
       <div className="space-y-5">
-        <div className={card} ref={patientSectionRef}>
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-50 text-teal-600">
-                  <svg
-                    className="h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                    <circle cx="12" cy="7" r="4" />
-                  </svg>
-                </span>
-                <div className={sectionTitle}>Patient Information</div>
+        {activeStep === 1 ? (
+          <div className={card} ref={patientSectionRef}>
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-50 text-teal-600">
+                    <svg
+                      className="h-4 w-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                      <circle cx="12" cy="7" r="4" />
+                    </svg>
+                  </span>
+                  <div className={sectionTitle}>Patient Information</div>
+                </div>
+                <div className={`${sectionHint} mt-1`}>
+                  Used only to identify the patient during booking.
+                </div>
               </div>
-              <div className={`${sectionHint} mt-1`}>
-                Used only to identify the patient during booking.
+              <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
+                Step 1
+              </span>
+            </div>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-600" htmlFor="patientName">
+                  Full Name
+                </label>
+                <input
+                  id="patientName"
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-200"
+                  placeholder="e.g. Jean Tremblay"
+                  type="text"
+                  value={patientName}
+                  onChange={(event) =>
+                    updateStepOneField(
+                      patientName,
+                      event.target.value,
+                      setPatientName,
+                    )
+                  }
+                  ref={patientNameInputRef}
+                />
+              </div>
+              <div>
+                <label
+                  className="text-xs font-semibold text-slate-600"
+                  htmlFor="healthCardNumber"
+                >
+                  Health Card Number
+                </label>
+                <input
+                  id="healthCardNumber"
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-200"
+                  placeholder="RAMQ number"
+                  type="text"
+                  value={healthCardNumber}
+                  onChange={(event) =>
+                    updateStepOneField(
+                      healthCardNumber,
+                      event.target.value,
+                      setHealthCardNumber,
+                    )
+                  }
+                />
+              </div>
+              <div>
+                <label
+                  className="text-xs font-semibold text-slate-600"
+                  htmlFor="phoneNumber"
+                >
+                  Phone Number
+                </label>
+                <input
+                  id="phoneNumber"
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-200"
+                  placeholder="e.g. +1 514 555 1234"
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(event) =>
+                    updateStepOneField(
+                      phoneNumber,
+                      event.target.value,
+                      setPhoneNumber,
+                    )
+                  }
+                />
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Used to send the appointment confirmation SMS.
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-600" htmlFor="location">
+                  Location
+                </label>
+                <input
+                  id="location"
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-200"
+                  placeholder="Please enter your postal code or address"
+                  type="text"
+                  value={location}
+                  onChange={(event) =>
+                    updateStepOneField(
+                      location,
+                      event.target.value,
+                      setLocation,
+                    )
+                  }
+                  disabled={isSending || triage !== null}
+                />
               </div>
             </div>
-            <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
-              Step 1
-            </span>
-          </div>
-          <div className="mt-4 space-y-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-600" htmlFor="patientName">
-                Full Name
-              </label>
-              <input
-                id="patientName"
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-200"
-                placeholder="e.g. Jean Tremblay"
-                type="text"
-                value={patientName}
-                onChange={(event) => setPatientName(event.target.value)}
-                ref={patientNameInputRef}
-              />
-            </div>
-            <div>
-              <label
-                className="text-xs font-semibold text-slate-600"
-                htmlFor="healthCardNumber"
+            <div className="mt-5 flex justify-end">
+              <button
+                className={primaryButton}
+                type="button"
+                onClick={handleContinueToSymptoms}
               >
-                Health Card Number
-              </label>
-              <input
-                id="healthCardNumber"
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-200"
-                placeholder="RAMQ number"
-                type="text"
-                value={healthCardNumber}
-                onChange={(event) => setHealthCardNumber(event.target.value)}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-600" htmlFor="location">
-                Location
-              </label>
-              <input
-                id="location"
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-200"
-                placeholder="City or neighborhood"
-                value={location}
-                onChange={(event) => setLocation(event.target.value)}
-                disabled={isEmergency || isSending}
-              />
+                Continue to symptoms
+              </button>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className={card} ref={patientSectionRef}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-50 text-teal-600">
+                    <svg
+                      className="h-4 w-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                      <circle cx="12" cy="7" r="4" />
+                    </svg>
+                  </span>
+                  <div className={sectionTitle}>Patient Information</div>
+                </div>
+                <div className={`${sectionHint} mt-1`}>
+                  Review details or go back to make changes.
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
+                  Step 1
+                </span>
+                <button
+                  className={secondaryButton}
+                  type="button"
+                  onClick={handleBackToPatientInfo}
+                >
+                  Change
+                </button>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Full Name
+                </div>
+                <div className="mt-1">{patientName || "Not provided yet"}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Health Card
+                </div>
+                <div className="mt-1">{healthCardNumber || "Not provided yet"}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Phone
+                </div>
+                <div className="mt-1">{phoneNumber || "Not provided yet"}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Location
+                </div>
+                <div className="mt-1">{location || "Not provided yet"}</div>
+              </div>
+            </div>
+          </div>
+        )}
 
-        <form className={card} onSubmit={handleSend} ref={symptomsSectionRef}>
+        {activeStep === 2 ? (
+          <form className={card} onSubmit={handleSend} ref={symptomsSectionRef}>
           <div className="flex items-start justify-between">
             <div>
               <div className="flex items-center gap-2">
@@ -465,85 +795,145 @@ export default function Home() {
                     <path d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
                   </svg>
                 </span>
-                <div className={sectionTitle}>Symptoms & Location</div>
+                <div className={sectionTitle}>Briefly describe your Symptoms</div>
               </div>
               <div className={`${sectionHint} mt-1`}>
-                Tell us what you feel and where you are.
+                Chat with the assistant about how you feel.
               </div>
             </div>
             <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
               Step 2
             </span>
           </div>
-          <div className="mt-4 space-y-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-600" htmlFor="symptoms">
-                Symptoms
-              </label>
-              <textarea
-                id="symptoms"
-                className="mt-2 min-h-[120px] w-full rounded-xl border border-slate-300 bg-white p-3 text-sm shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-200"
-                placeholder="Describe how you feel..."
-                value={symptoms}
-                onChange={(event) => setSymptoms(event.target.value)}
-                disabled={isEmergency || isSending}
-                ref={symptomsInputRef}
-              />
+          <div className="mt-4 overflow-hidden rounded-[1.5rem] border border-slate-200 bg-slate-50/80">
+            <div className="flex min-h-[360px] flex-col">
+              <div className="flex-1 space-y-4 px-4 py-4">
+            {messages.length === 0 ? (
+                  <>
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white shadow-sm">
+                        AI
+                      </div>
+                      <div className="max-w-[85%] rounded-2xl rounded-tl-md border border-blue-100 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                        Tell me what symptoms you are having, when they started,
+                        and anything that feels unusual. I&apos;ll ask follow-up
+                        questions if needed.
+                      </div>
+                    </div>
+                    <div className="pl-12">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Suggested prompts
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                {SUGGESTED_SYMPTOM_PROMPTS.map((prompt) => (
+                          <button
+                            key={prompt}
+                            type="button"
+                            className="rounded-full border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-700 shadow-sm transition hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={() => updateSymptomsDraft(prompt)}
+                            disabled={isSending || triage !== null}
+                          >
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  messages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`flex ${
+                        message.role === "user" ? "justify-end" : "justify-start"
+                      }`}
+                    >
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                          message.role === "user"
+                            ? "rounded-br-md bg-gradient-to-r from-teal-600 to-blue-600 text-white"
+                            : "rounded-tl-md border border-slate-200 bg-white text-slate-800"
+                        }`}
+                      >
+                        <div
+                          className={`text-[11px] font-semibold uppercase tracking-wide ${
+                            message.role === "user"
+                              ? "text-white/75"
+                              : "text-slate-500"
+                          }`}
+                        >
+                          {message.role === "user" ? "You" : "Assistant"}
+                        </div>
+                        <p className="mt-1 whitespace-pre-line text-sm">
+                          {message.content}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+                {isSending ? (
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white shadow-sm">
+                      AI
+                    </div>
+                    <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400 [animation-delay:120ms]" />
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400 [animation-delay:240ms]" />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="border-t border-slate-200 bg-white/90 p-3">
+                <div className="rounded-[1.25rem] border border-slate-200 bg-white p-2 shadow-sm">
+                  <label className="sr-only" htmlFor="symptoms">
+                    Symptoms
+                  </label>
+                  <textarea
+                    id="symptoms"
+                    className="min-h-[96px] w-full resize-none border-0 bg-transparent px-2 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400"
+                    placeholder="Message the assistant about your symptoms..."
+                    value={symptoms}
+                    onChange={(event) => updateSymptomsDraft(event.target.value)}
+                    disabled={isSending || triage !== null}
+                    ref={symptomsInputRef}
+                  />
+                  <div className="flex items-center justify-between gap-3 px-2 pb-1 pt-2">
+                    <button
+                      className={secondaryButton}
+                      type="button"
+                      onClick={handleBackToPatientInfo}
+                    >
+                      Back
+                    </button>
+                    <div className="flex items-center gap-3">
+                      <div className="hidden text-xs text-slate-500 sm:block">
+                        Describe timing and anything that makes symptoms better or worse.
+                      </div>
+                      <button
+                        className={`${primaryButton} shrink-0 px-4 py-2`}
+                        type="submit"
+                        disabled={isSending || triage !== null}
+                      >
+                        {isSending ? (
+                          <span className="flex items-center gap-2">
+                            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-white" />
+                            Thinking...
+                          </span>
+                        ) : (
+                          "Send"
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-          <div className="mt-4">
-            <button className={primaryButton} type="submit" disabled={isEmergency || isSending}>
-              {isSending ? (
-                <span className="flex items-center gap-2">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-white" />
-                  Finding clinics...
-                </span>
-              ) : (
-                "Send"
-              )}
-            </button>
-          </div>
         </form>
-
-        <div className={card}>
-          <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
-              <svg
-                className="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
-              </svg>
-            </span>
-            <div className={sectionTitle}>Conversation</div>
-          </div>
-          <div className="mt-3 flex flex-col gap-3">
-            {messages.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-200 px-4 py-5 text-sm text-slate-500">
-                No messages yet.
-              </div>
-            ) : (
-              messages.map((message) => (
-                <div
-                  key={message.id}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700"
-                >
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    {message.role}
-                  </div>
-                  <p className="mt-1 whitespace-pre-line text-sm text-slate-900">
-                    {message.content}
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        ) : null}
       </div>
     );
 
@@ -588,10 +978,11 @@ export default function Home() {
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
             <div>Patient: {patientName}</div>
             <div>Health card: {healthCardNumber}</div>
+            <div>Phone: {phoneNumber}</div>
           </div>
         ) : (
           <div className="mt-4 text-xs text-slate-500">
-            Please enter patient information before calling.
+            Please enter patient information and a phone number before calling.
           </div>
         )}
         <div className="mt-4 space-y-3">
@@ -664,7 +1055,7 @@ export default function Home() {
                     className={`${primaryButton} flex-1`}
                     type="button"
                     onClick={() => handleCallClinic(clinic)}
-                    disabled={isEmergency || callingClinicId === clinic.id || !isIdentityReady}
+                    disabled={callingClinicId === clinic.id || !isIdentityReady}
                   >
                     {callingClinicId === clinic.id ? (
                       <span className="flex items-center justify-center gap-2">
@@ -688,117 +1079,199 @@ export default function Home() {
             ))
           )}
         </div>
+        <div className="mt-5 flex justify-start">
+          <button
+            className={secondaryButton}
+            type="button"
+            onClick={handleBackToSymptoms}
+          >
+            Back
+          </button>
+        </div>
       </div>
     );
 
-    const handleNewAppointment = () => {
-      setAppointment(null);
-      setClinics([]);
-      setClinicError(null);
-      setLocationWarning(null);
-      setTriage(null);
-      setIsWaitingConfirmation(false);
-      setIsEmergency(false);
-      setUiStatus({ type: "idle" });
-      setViewState("form");
-    };
-
-    const confirmationCard = appointment ? (
-      <div className="space-y-4" ref={confirmedSectionRef}>
-        <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 px-4 py-4 text-sm text-emerald-900 shadow-sm">
-          <div className="flex items-center gap-2 text-base font-semibold">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-white">
-              <svg
-                className="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
-            </span>
-            Appointment Confirmed
-          </div>
-          <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">
-            Confirmed ✓
-          </div>
-          <div className="mt-2">Date: {appointment.date}</div>
-          <div>Time: {appointment.time}</div>
-          <div>Patient: {appointment.patientName}</div>
-          <div className="mt-4">
-            <button
-              className={primaryButton}
-              type="button"
-              onClick={handleNewAppointment}
-            >
-              Book another appointment
-            </button>
-          </div>
+    const triageCard = triage ? (
+      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-700 shadow-sm">
+        <div className="text-base font-semibold text-slate-900">
+          Medical Safety Assessment
         </div>
-        {triage ? (
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-700 shadow-sm">
-            <div className="text-base font-semibold text-slate-900">
-              Medical Safety Assessment
-            </div>
-            <div className="mt-2 text-sm">
-              Severity:{" "}
-              <span
-                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                  triage.gravity_level === "HIGH"
-                    ? "bg-red-100 text-red-700"
-                    : triage.gravity_level === "MEDIUM"
-                      ? "bg-yellow-100 text-yellow-800"
-                      : "bg-emerald-100 text-emerald-700"
-                }`}
-              >
-                {triage.gravity_level}
-              </span>
-            </div>
-            <div className="mt-2 text-sm text-slate-700">
-              Based on reported symptoms:{" "}
-              {triage.matched_symptoms.length > 0
-                ? triage.matched_symptoms.join(", ")
-                : "no specific matches"}
-            </div>
-            <ul className="mt-3 space-y-2 text-sm text-slate-700">
-              {triage.recommendations.map((item, index) => (
-                <li key={`${item}-${index}`} className="flex items-start gap-2">
-                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-teal-500" />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-            {triage.gravity_level === "HIGH" ? (
-              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
-                Go to emergency services immediately.
+        <div className="mt-2 text-sm">
+          Severity:{" "}
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+              triage.gravity_level === "HIGH"
+                ? "bg-red-100 text-red-700"
+                : triage.gravity_level === "MEDIUM"
+                  ? "bg-yellow-100 text-yellow-800"
+                  : "bg-emerald-100 text-emerald-700"
+            }`}
+          >
+            {triage.gravity_level}
+          </span>
+        </div>
+        {triage.body_heatmap && triage.body_heatmap.length > 0 ? (
+          <BodyHeatmap entries={triage.body_heatmap} />
+        ) : null}
+        <p className="mt-3 text-sm text-slate-700">{triage.summary_paragraph}</p>
+        <div className="mt-4 text-sm font-semibold text-slate-900">
+          Recommendations
+        </div>
+        <ul className="mt-2 space-y-2 text-sm text-slate-700">
+          {triage.recommendations.map((item, index) => (
+            <li key={`${item}-${index}`} className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-teal-500" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-4 text-sm font-semibold text-slate-900">
+          While waiting
+        </div>
+        <ul className="mt-2 space-y-2 text-sm text-slate-700">
+          {triage.wait_care_tips.map((item, index) => (
+            <li key={`${item}-${index}`} className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+        {triage.gravity_level === "HIGH" ? (
+          <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+            These symptoms may require urgent emergency evaluation.
+          </div>
+        ) : null}
+        {activeStep === 2 ? (
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <button
+              className={secondaryButton}
+              type="button"
+              onClick={handleBackToPatientInfo}
+            >
+              Back
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="hidden text-xs text-slate-500 sm:block">
+                Review the advice, then continue when you are ready to see clinics.
               </div>
-            ) : null}
-            <div className="mt-2 text-xs text-slate-500">
-              This is not medical advice.
+              <button
+                className={primaryButton}
+                type="button"
+                onClick={() => void handleContinueToClinics()}
+                disabled={isClinicsLoading}
+              >
+                {isClinicsLoading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-white" />
+                    Searching for clinics...
+                  </span>
+                ) : (
+                  "Continue to clinic search"
+                )}
+              </button>
             </div>
           </div>
         ) : null}
+        <div className="mt-3 text-xs text-slate-500">{disclaimer}</div>
       </div>
     ) : null;
 
     const rightColumn = (
       <div className="space-y-5">
-        {viewState === "confirmed" && confirmationCard ? confirmationCard : null}
-        {viewState === "calling" ? (
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-700 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-teal-500" />
-              Calling clinic...
+        {activeStep === 3 && viewState === "calling" ? (
+          <div className="overflow-hidden rounded-[1.8rem] border border-slate-200/80 bg-white shadow-xl shadow-slate-200/40">
+            <div className="border-b border-slate-200/80 bg-[linear-gradient(135deg,_rgba(240,253,250,0.95),_rgba(248,250,252,0.92))] px-5 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                    <span className="relative flex h-3 w-3">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/70" />
+                      <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
+                    </span>
+                    Live booking call in progress
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Watching the call update turn by turn as Twilio gathers responses.
+                  </div>
+                </div>
+                <div className="rounded-full border border-emerald-200 bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                  Active
+                </div>
+              </div>
             </div>
-            <div className="mt-2 text-xs text-slate-500">
-              Waiting for appointment confirmation.
+
+            <div className="bg-[linear-gradient(180deg,_rgba(248,250,252,0.88),_rgba(255,255,255,1)_24%,_rgba(248,250,252,0.6)_100%)] px-4 py-4">
+              <div className="rounded-[1.4rem] border border-slate-200/80 bg-white/90 p-3 shadow-inner shadow-slate-100/70">
+                <div className="mb-3 flex items-center justify-between gap-3 px-1">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Live conversation
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-teal-400" />
+                    Updating automatically
+                  </div>
+                </div>
+
+                <div className="max-h-[28rem] space-y-3 overflow-y-auto px-1 py-1" ref={liveCallScrollRef}>
+                  {isTranscriptLoading && liveCallMessages.length === 0 ? (
+                    <div className="rounded-[1.3rem] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center">
+                      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm">
+                        <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-teal-500" />
+                      </div>
+                      <div className="mt-4 text-sm font-semibold text-slate-900">
+                        Connecting and waiting for the first response...
+                      </div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        The live transcript will appear here as the clinic answers.
+                      </div>
+                    </div>
+                  ) : liveCallMessages.length === 0 ? (
+                    <div className="rounded-[1.3rem] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center">
+                      <div className="text-sm font-semibold text-slate-900">
+                        Waiting for the conversation to begin
+                      </div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        Twilio is connected. The first turn will appear here shortly.
+                      </div>
+                    </div>
+                  ) : (
+                    liveCallMessages.map((message) => (
+                      <div
+                        key={message.id}
+                        className={`flex ${
+                          message.role === "assistant" ? "justify-start" : "justify-end"
+                        }`}
+                      >
+                        <div
+                          className={`max-w-[88%] rounded-[1.3rem] px-4 py-3 shadow-sm ${
+                            message.role === "assistant"
+                              ? "border border-slate-200 bg-slate-50 text-slate-800"
+                              : "bg-gradient-to-r from-teal-600 to-blue-600 text-white"
+                          }`}
+                        >
+                          <div
+                            className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${
+                              message.role === "assistant"
+                                ? "text-slate-500"
+                                : "text-white/75"
+                            }`}
+                          >
+                            {message.role === "assistant" ? "CareFlow" : "Clinic"}
+                          </div>
+                          <div className="mt-1 whitespace-pre-wrap text-sm leading-6">
+                            {message.content}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         ) : null}
-        {viewState !== "calling" && viewState !== "confirmed" ? clinicsCard : null}
+        {activeStep === 2 && triageCard ? triageCard : null}
+        {activeStep === 3 && viewState === "clinics" ? clinicsCard : null}
       </div>
     );
 
@@ -810,21 +1283,14 @@ export default function Home() {
     );
   })();
 
-  const stepIndex =
-    viewState === "confirmed"
-      ? 4
-      : viewState === "clinics" || viewState === "calling"
-        ? 3
-        : messages.length > 0
-          ? 2
-          : 1;
-
   const steps = [
     { id: 1, label: "Patient info" },
-    { id: 2, label: "Symptoms & location" },
+    { id: 2, label: "Symptoms" },
     { id: 3, label: "Closest clinics" },
-    { id: 4, label: "Confirmed" },
+    { id: 4, label: "Confirmation" },
   ];
+
+  const progressPercent = (activeStep / steps.length) * 100;
 
   useEffect(() => {
     if (uiStatus.type !== "success") return;
@@ -842,22 +1308,39 @@ export default function Home() {
       ref.current?.scrollIntoView({ behavior, block: "start" });
     };
 
-    if (stepIndex === 4) {
-      scrollTo(confirmedSectionRef);
-    } else if (stepIndex === 3) {
+    if (activeStep === 3) {
       scrollTo(clinicsSectionRef);
-    } else if (stepIndex === 2) {
+    } else if (activeStep === 2) {
       scrollTo(symptomsSectionRef);
     } else {
       scrollTo(patientSectionRef);
     }
 
-    if (stepIndex === 1) {
+    if (activeStep === 1) {
       setTimeout(() => patientNameInputRef.current?.focus(), 0);
-    } else if (stepIndex === 2) {
+    } else if (activeStep === 2) {
       setTimeout(() => symptomsInputRef.current?.focus(), 0);
     }
-  }, [stepIndex, viewState]);
+  }, [activeStep, viewState]);
+
+  useEffect(() => {
+    if (viewState !== "calling" || !activeCallSid) return;
+
+    setIsTranscriptLoading(true);
+    void fetchLiveCallTranscript(activeCallSid);
+
+    const interval = setInterval(() => {
+      void fetchLiveCallTranscript(activeCallSid);
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [activeCallSid, viewState]);
+
+  useEffect(() => {
+    const container = liveCallScrollRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+  }, [liveCallMessages]);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50">
@@ -877,7 +1360,8 @@ export default function Home() {
           {isEmergency ? (
             <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">
               Emergency warning: Your symptoms may be urgent. Please call 911 or
-              go to the nearest emergency room. The chat is locked for safety.
+              go to the nearest emergency room. You can still review clinics,
+              but emergency care may be the safer option.
             </div>
           ) : null}
         </div>
@@ -914,30 +1398,39 @@ export default function Home() {
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               Booking progress
             </div>
-            <div className="mt-3 flex items-center gap-3">
-              {steps.map((step, index) => (
-                <div key={step.id} className="flex items-center gap-3">
-                  <div
-                    className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold ${
-                      step.id <= stepIndex
-                        ? "border-teal-500 bg-teal-500 text-white"
-                        : "border-slate-200 bg-white text-slate-500"
-                    }`}
-                  >
-                    {step.id}
-                  </div>
-                  <div className="text-xs font-semibold text-slate-600">
-                    {step.label}
-                  </div>
-                  {index < steps.length - 1 ? (
+            <div className="mt-3">
+              <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-teal-500 to-blue-600 transition-all duration-300"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              <div className="mt-4 grid grid-cols-4 gap-3">
+                {steps.map((step) => (
+                  <div key={step.id} className="text-center">
                     <div
-                      className={`h-[2px] w-10 rounded-full ${
-                        step.id < stepIndex ? "bg-teal-500" : "bg-slate-200"
+                      className={`mx-auto flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold ${
+                        step.id < activeStep
+                          ? "border-teal-500 bg-teal-500 text-white"
+                          : step.id === activeStep
+                            ? "border-blue-600 bg-blue-600 text-white"
+                            : "border-slate-200 bg-white text-slate-500"
                       }`}
-                    />
-                  ) : null}
-                </div>
-              ))}
+                    >
+                      {step.id}
+                    </div>
+                    <div
+                      className={`mt-2 text-[11px] font-semibold uppercase tracking-wide ${
+                        step.id === activeStep
+                          ? "text-slate-900"
+                          : "text-slate-500"
+                      }`}
+                    >
+                      {step.label}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -964,6 +1457,3 @@ export default function Home() {
     </main>
   );
 }
-
-
-
