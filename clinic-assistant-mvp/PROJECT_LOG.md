@@ -2,56 +2,76 @@
 
 ## Project Identity
 
-- Project name: `clinic-assistant-mvp`
+- Product name: `CarePilot`
+- Repo app folder: `clinic-assistant-mvp`
 - Stack:
   - Next.js 16
   - React 19
   - TypeScript
   - Tailwind CSS
-  - Twilio for outbound voice calls and SMS
-  - Anthropic Claude API for conversational triage
-  - ElevenLabs optional TTS layer for phone voice prompts
+  - Anthropic Claude API
+  - Twilio voice + SMS
+  - ElevenLabs optional TTS
+  - OpenStreetMap / Overpass clinic lookup
 
-## High-Level Goal
+## Product Goal
 
-This project is a healthcare booking assistant MVP.
+CarePilot is a triage-and-booking assistant designed to help patients reach the right clinic faster without defaulting every uncertain case to emergency care.
 
-Current intended user flow:
+Core intent:
 
-1. User enters patient identity details
-2. User chats with Claude for triage
-3. Claude returns urgency + recommendations + wait-care tips
-4. User manually continues to clinic search
-5. User selects a clinic and starts a Twilio outbound call
-6. Twilio phone flow captures appointment date/time
-7. Appointment is stored locally in memory
-8. Confirmation SMS is sent to the patient phone number
-9. Confirmation details are shown in the dashboard
+- improve front-door medical triage
+- reduce unnecessary emergency overload
+- route non-emergency users toward appropriate nearby clinics
+- give patients useful medical guidance while they wait
+- reduce booking friction by automating the clinic call
 
-## Current Folder Reality
+This is not a diagnosis system. It is a careful routing and booking workflow with medical guidance boundaries.
 
-There were two similar hackathon folders discovered during work:
+## Current User Flow
 
-- `Hackathon Claude Builder Club 2026/...`
-- `Hackathon Claude  2026/...`
+1. User enters patient identity, phone number, and location
+2. User chats with Claude in Step 2 for triage
+3. Claude returns urgency, recommendations, wait-care guidance, and optional body heatmap
+4. User explicitly continues to clinic search
+5. App finds nearby clinics or uses fallback clinics
+6. User starts a Twilio outbound booking call
+7. Live phone conversation appears on screen during the call
+8. Appointment date/time is captured and saved in memory
+9. App attempts SMS confirmation
+10. User is redirected to a dedicated confirmation page
 
-The active working project is the one with the double space:
+## Important Runtime / Local Setup Notes
+
+### Working project path
+
+Active local app:
 
 - `/Users/aymzz/Developer/Hackathon Claude  2026/CareFlow/clinic-assistant-mvp`
 
-This matters because earlier environment variable confusion came from editing/running the wrong copy.
+### Local run commands
 
-## Important Runtime / Environment Setup
+From the app root:
 
-### Required runtime tools
+```bash
+cd "/Users/aymzz/Developer/Hackathon Claude  2026/CareFlow/clinic-assistant-mvp"
+npm install
+npm run dev
+```
 
-- Node.js / npm installed locally on the Mac
-- Homebrew installed
-- ngrok installed and authenticated if running locally with Twilio callbacks
+For Twilio local callbacks:
 
-### Current important env vars
+```bash
+ngrok http 3000
+```
 
-The app depends on:
+Then set:
+
+- `PUBLIC_BASE_URL=https://<your-ngrok-domain>`
+
+and restart the dev server.
+
+### Required env vars
 
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
@@ -65,529 +85,286 @@ Optional:
 - `ELEVENLABS_VOICE_ID`
 - `ELEVENLABS_MODEL_ID`
 
-### Local Twilio callback requirement
+### Security note
 
-When running locally:
+- `.env.local` is ignored by git
+- secrets should never be committed
 
-- Next app runs on local port `3000`
-- ngrok must expose the app publicly
-- `PUBLIC_BASE_URL` must match the current live ngrok HTTPS URL
+## Major Product Features Implemented
 
-If `PUBLIC_BASE_URL` is stale or placeholder text, Twilio voice webhooks fail.
-
-## Major Features Implemented So Far
-
-### 1. Full project understanding and run guidance
-
-What was established:
-
-- the app is a single Next.js app, not a multi-service monorepo
-- main frontend lives in `src/app/page.tsx`
-- voice flow lives in `src/app/api/twilio/voice/route.ts`
-- clinic lookup lives in `src/app/api/clinics/route.ts`
-- call initiation lives in `src/app/api/call/route.ts`
-- appointment persistence lives in `src/app/api/appointment/confirm/route.ts`
-
-### 2. Local machine setup help
-
-Completed:
-
-- identified that the new Mac did not have `node`, `npm`, or Homebrew available initially
-- guided Homebrew install
-- guided Node setup
-- guided ngrok setup and auth token installation
-- clarified where tools install on macOS and how they interact with the project
-
-### 3. Twilio voice booking flow debugging
-
-Issues encountered and resolved:
-
-- missing / wrong env vars
-- placeholder `PUBLIC_BASE_URL`
-- ngrok offline / invalid token
-- Twilio webhook failures
-- ElevenLabs causing voice route failures
-
-Key outcome:
-
-- Twilio call flow is functioning
-- first prompt is reachable through the Twilio webhook
-- call can progress through multi-step appointment booking
-
-### 4. ElevenLabs integration and fallback strategy
-
-What happened:
-
-- `/api/tts` originally failed with generic errors
-- route was improved to return provider error details
-- default ElevenLabs model was updated to `eleven_flash_v2_5`
-- discovered free-tier restriction on certain voice library voices
-- confirmed that Twilio built-in `<Say voice="alice">` works as a fallback
-
-Important practical result:
-
-- the call flow can work without ElevenLabs
-- ElevenLabs is optional for better voice quality, not required for booking logic
-
-### 5. Twilio voice flow customization
-
-Implemented voice-flow changes:
-
-- conservative latency improvement:
-  - gather timeout reduced from `8` to `4`
-  - speech timeout reduced from `auto` to `2`
-- added 3-second pause before the very first spoken prompt after pickup
-- added repeated reading of:
-  - patient name
-  - health card number
-- added explicit secretary confirmation:
-  - asks if details were noted
-  - accepts yes / no style responses
-  - repeats when asked again
-
-Speech formatting changes:
-
-- health card number is spoken character-by-character
-- patient name is spoken character-by-character
-- spaces become pauses
-- hyphens become `dash`
-
-### 6. Claude multi-turn triage feature
-
-The old deterministic keyword-only triage route was replaced.
+### 1. Claude-powered multi-turn triage
 
 Current behavior:
 
-- frontend sends chat history + location to `/api/triage`
-- backend calls Anthropic Claude
-- Claude can either:
-  - ask a short follow-up question
-  - return a final triage result
+- Step 2 is a real chat-style symptom conversation
+- Claude can ask short follow-up questions
+- final triage returns:
+  - urgency level
+  - assistant summary
+  - recommendations
+  - wait-care tips
+  - emergency warning
+  - optional body heatmap
 
-Current Claude response shape:
+Why it matters:
 
-- `status`
-- `assistant_message`
-- `gravity_level` for final result
-- `recommendations`
-- `summary_paragraph`
-- `wait_care_tips`
-- `emergency_warning`
+- patients get guidance before booking
+- triage helps determine whether clinic care is appropriate
+- severe cases still surface emergency warnings clearly
 
-Current frontend behavior:
-
-- uses the existing conversation panel
-- supports multi-turn symptom discussion
-- does not auto-jump to clinics after final triage
-- shows a final triage card first
-- user must explicitly click `Continue to clinic search`
-- severe cases show warning but still allow progression
-
-Claude route details:
-
-- model currently set to `claude-haiku-4-5`
-- API key read from `ANTHROPIC_API_KEY`
-- hard validation exists on returned JSON shape
-- malformed AI output surfaces as explicit Claude-unavailable errors
-
-### 7. SMS confirmation feature
-
-Implemented end-to-end:
-
-- added patient phone number input in Step 1
-- phone number is now required before calling a clinic
-- phone number is passed into `/api/call`
-- Twilio voice route carries:
-  - `phoneNumber`
-  - `clinicName`
-- appointment confirmation now stores:
-  - date
-  - time
-  - patient name
-  - health card number
-  - patient phone number
-  - clinic name
-  - SMS status
-  - SMS error text if sending fails
-
-SMS sending behavior:
-
-- uses Twilio `client.messages.create(...)`
-- message is sent from `TWILIO_PHONE_NUMBER`
-- SMS content includes:
-  - clinic name
-  - date
-  - time
-
-UI updates:
-
-- dashboard confirmation card now shows:
-  - date
-  - time
-  - patient name
-  - clinic name
-  - SMS delivery status
-  - SMS error warning if sending failed
-
-### 8. Body heatmap triage visualization
+### 2. Body heatmap visualization
 
 Implemented:
 
-- final triage results can now include an optional structured body heatmap
-- frontend renders a segmented human-body heatmap tied to the diagnosis
-- severity coloring is visual and intuitive:
+- final triage can highlight affected body areas
+- severity is color-coded:
   - low = yellow
   - medium = orange
   - high = red
 
-Current behavior:
+Current UI result:
 
-- the body is rendered as a collection of separately colorable shapes
-- each body region has its own stable identifier
-- only affected areas are highlighted
-- the heatmap is visual-only and does not change booking logic
+- symptom severity is easier to understand at a glance
+- the triage output feels more medical and less text-only
 
-Important UI result:
-
-- triage now communicates not only urgency and recommendations
-- it also shows where the issue is located on the body in a fast, glanceable way
-
-### 9. Step 2 chat-style symptom experience
+### 3. Explicit 4-step booking flow
 
 Implemented:
 
-- merged the symptom input box and conversation panel into one single chat-style Step 2 experience
-- users now feel like they are talking directly to a chatbot instead of filling a separate form then reading messages
-- added a bottom chat composer while preserving the existing triage request flow
+1. patient info
+2. symptoms / triage
+3. clinic search / call
+4. confirmation
 
-Current UX behavior:
+Also added:
 
-- Step 2 starts as a chat panel
-- the user sends symptoms directly in the conversation area
-- follow-up questions and final triage responses stay in the same thread
-- the triage result card still appears after the conversation completes
+- progress bar
+- back / change navigation
+- cleaner transitions between steps
 
-### 10. Explicit 4-step navigation and progress tracking
-
-Implemented:
-
-- converted the flow into a clearer explicit 4-step journey:
-  1. patient info
-  2. triage chat
-  3. clinic search / call
-  4. confirmation
-- added forward / back / change navigation between steps
-- added a persistent progress bar with labeled stages at the top
-
-Current behavior:
-
-- Step 1 can collapse into a compact summary after completion
-- users can go back and revise prior steps more safely
-- downstream state is reset when earlier critical inputs change
-- overall transitions between steps are smoother and easier to understand
-
-### 11. Step 2 to Step 3 transition micro-loader
+### 4. Nearby clinic routing
 
 Implemented:
 
-- when the user clicks `Continue to clinic search`, the button now shows a small loading spinner
-- loading copy now reads:
-  - `Searching for clinics...`
+- location-based clinic search
+- live geocoding with OpenStreetMap Nominatim
+- nearby clinic lookup through Overpass
+- fallback clinic list if live services are unavailable
 
-Important UX result:
+Why it matters:
 
-- the user now gets immediate feedback that clinic search has started
-- this avoids the transition feeling abrupt or inactive while Step 3 begins loading
+- the app helps route lower-acuity users toward clinics instead of sending everyone toward emergency care
 
-## Important Bug Fixes Already Made
+### 5. Outbound phone booking with Twilio
 
-### Appointment confirmation polling bug
+Implemented:
 
-Problem:
+- server-side outbound call initiation
+- multi-step voice flow for availability, date, time, and confirmation
+- repeated reading of:
+  - patient name
+  - health card number
+- secretary confirmation step:
+  - asks whether details were noted
+  - accepts yes / no style replies
 
-- the app showed `No confirmation received yet`
-- polling never found a saved appointment
+### 6. Live call conversation panel
 
-Root causes addressed:
+Implemented:
 
-1. appointment save was originally fire-and-forget from the Twilio step
-2. later, an internal HTTPS self-call hit certificate issues through ngrok
+- while the Twilio booking call is active, the screen shows a live premium-style message thread
+- prompts and recognized clinic responses appear turn by turn
+- this uses a lightweight transcript store and polling endpoint
 
-Fixes made:
+Why it matters:
 
-- appointment save logic was extracted into shared function:
-  - `saveAppointment(...)`
-- Twilio voice route now calls `saveAppointment(...)` directly in-process
-- this removed dependency on internal `fetch` back through ngrok / self-signed certificates
-- frontend polling was made less strict about optional SMS/clinic fields
+- the user can follow the booking call in real time
+- the experience feels more premium and transparent
 
-### Local HTTPS self-signed certificate bug
+### 7. Confirmation page and SMS
 
-Observed error:
+Implemented:
 
-- `DEPTH_ZERO_SELF_SIGNED_CERT`
+- appointment is saved in memory
+- SMS delivery is attempted through Twilio
+- app redirects to a dedicated confirmation page after success
+- confirmation page shows:
+  - appointment details
+  - completed booking timeline
+  - SMS status
 
-Resolution:
+### 8. Branding and visual polish
 
-- removed internal round-trip from Twilio route to `/api/appointment/confirm`
-- switched to direct server-side function call instead
+Implemented:
 
-### ElevenLabs blocking call flow
+- CarePilot logo added as persistent branding
+- premium blue-and-white atmospheric background treatment
+- more polished success and loading states
 
-Observed behavior:
+## Important Reliability / Bug Fix Work Completed
 
-- phone call said an application error occurred
+### Twilio webhook / ngrok debugging
 
-Resolution path:
+Problems encountered:
 
-- tested `/api/twilio/voice?step=1`
-- isolated `/api/tts`
-- temporarily disabled ElevenLabs in env to fall back to Twilio built-in voice
-
-### First-call Twilio webhook reliability / ngrok debugging
-
-Observed behavior:
-
-- outbound call sometimes failed on the first attempt
-- Twilio console showed webhook error `11200`
-- Twilio received HTTP `404` from the public ngrok callback URL
+- stale `PUBLIC_BASE_URL`
+- ngrok callback failures
+- Twilio `11200` webhook issues
 
 What was clarified:
 
-- the phone call itself could be created successfully
-- the failure was caused by Twilio not reaching `/api/twilio/voice` through the active public URL
-- local callback reliability depends on:
-  - correct ngrok tunnel
-  - correct `PUBLIC_BASE_URL`
-  - restarting the app after updating `.env.local`
+- local Twilio reliability depends on the active ngrok tunnel and correct public callback URL
 
-### Voice-flow save hardening
+### Voice-flow appointment save hardening
 
 Implemented:
 
-- Twilio voice booking save logic was made more fault-tolerant
-- appointment save failures during the voice flow are now logged with more useful backend detail
-- save is retried safely at final confirmation instead of immediately ending the call with a vague application error
+- direct in-process appointment save from the Twilio route
+- no internal HTTPS round-trip back into the app
+- safer retry behavior before the call ends
 
-## Current Key Files and Their Roles
+### ElevenLabs fallback strategy
+
+Implemented:
+
+- optional TTS path remains available
+- Twilio built-in voice acts as a reliable fallback
+
+### Claude triage rate-limit hardening
+
+Implemented:
+
+- reduced Claude prompt footprint
+- trimmed retained message history
+- reduced redundant context
+- cleaner user-facing messaging when Anthropic rate limits occur
+
+## Current Key Files
 
 ### `src/app/page.tsx`
 
-Current responsibilities:
+Responsibilities:
 
-- patient info form
-- phone number capture
-- Claude triage chat UI
-- body heatmap display for final triage
-- clinic lookup continuation
-- explicit step navigation and progress bar
-- clinic calling action
-- appointment polling
-- dashboard confirmation box with SMS status
+- patient form
+- Step 2 chat triage UI
+- clinic search UI
+- call initiation
+- live call conversation panel
+- progress navigation
+
+### `src/app/confirmation/page.tsx`
+
+Responsibilities:
+
+- post-booking confirmation experience
+- booking timeline
+- appointment detail display
+- SMS status display
 
 ### `src/app/api/triage/route.ts`
 
-Current responsibilities:
+Responsibilities:
 
-- receive triage chat history
-- call Anthropic Claude
-- validate Claude structured output
-- return either:
-  - follow-up question
-  - final triage result
+- Claude triage request handling
+- response validation
+- body heatmap support
+- rate-limit-aware prompt budgeting
+
+### `src/app/api/clinics/route.ts`
+
+Responsibilities:
+
+- location geocoding
+- clinic lookup
+- fallback clinic response path
 
 ### `src/app/api/call/route.ts`
 
-Current responsibilities:
+Responsibilities:
 
 - validate booking call request
-- create Twilio outbound call
-- pass patient name, health card, phone number, clinic name into Twilio voice route
-- trim env vars before creating callback URL
-- always call the demo hardcoded destination number
+- create outbound Twilio call
+- pass patient context into voice flow
 
 ### `src/app/api/twilio/voice/route.ts`
 
-Current responsibilities:
+Responsibilities:
 
-- manage all call steps
-- ask availability questions
-- parse dates/times
+- manage Twilio voice steps
+- capture date/time
 - repeat identity details
-- ask secretary confirmation
-- save appointment after time capture
-- retry / harden appointment save during voice flow
-- no longer calls appointment route over HTTPS internally
+- ask confirmation
+- save appointment
+- feed live transcript messages
 
-### `src/app/api/appointment/confirm/route.ts`
+### `src/app/api/call/transcript/route.ts`
 
-Current responsibilities:
+Responsibilities:
 
-- store latest appointment in memory
-- send SMS confirmation via Twilio
-- expose GET endpoint for frontend polling
-- expose DELETE endpoint to clear prior appointment before starting a new call
+- expose read-only live call transcript for the UI
 
-### `src/app/api/tts/route.ts`
+## Current Constraints / Caveats
 
-Current responsibilities:
+### In-memory appointment storage
 
-- optional ElevenLabs TTS audio generation
-- returns useful error details when provider rejects request
+- server restart clears confirmations
+- acceptable for MVP
+- not durable enough for production
 
-## Current Known Constraints / Caveats
+### Hardcoded demo call destination
 
-### 1. In-memory appointment storage
-
-Appointments are stored in memory only.
+Current backend still uses a hardcoded destination number for demo safety.
 
 That means:
 
-- a server restart clears the confirmation
-- not suitable for real persistence
-- acceptable for MVP / demo
+- the selected clinic card is part of the routing UX
+- but the outbound phone call is still intentionally controlled for demo behavior
 
-### 2. Hardcoded call destination
+### Local development dependency on ngrok
 
-`src/app/api/call/route.ts` still uses a hardcoded destination number:
+- local Twilio testing still requires a live public callback URL
 
-- `DESTINATION_NUMBER = "+14385068854"`
+### Clinic service intermittency
 
-This means the selected clinic card is not actually called by its displayed phone number.
-The clinic selection is currently more of a UI / workflow step than a real dynamic outbound destination.
+- public OpenStreetMap / Overpass services can occasionally fail or rate-limit
+- fallback clinics are used to preserve the flow
 
-### 3. Local dev latency still exists
+### Anthropic dependency
 
-Even with optimizations, local phone latency is still affected by:
-
-- ngrok tunnel
-- local machine hosting
-- ElevenLabs generation time when enabled
-- webhook round trips
-
-### 4. Twilio / SMS operational caveats
-
-SMS can still fail because of:
-
-- Twilio messaging permissions
-- invalid destination format
-- account restrictions
-- carrier / region / verified-number constraints
-
-The app now handles this by preserving the appointment and surfacing SMS status instead of blocking confirmation.
-
-### 5. Claude cost / availability dependency
-
-Current triage now depends on Anthropic API availability.
-
-No silent fallback to deterministic triage currently exists.
-
-If Claude is unavailable, the UI shows an explicit error.
-
-## Recent UX Decisions That Are Intentionally Preserved
-
-- keep the current layout instead of redesigning the page
-- keep clinic lookup and call flow as separate existing steps
-- require explicit user action to continue from triage to clinic search
-- show warnings for severe cases but still allow booking flow continuation
-- keep SMS optional from a success perspective:
-  - appointment confirmation should not fail if SMS fails
-- keep clinic calling in demo mode:
-  - always dial the hardcoded test number, not the real clinic phone
-
-## How To Run Locally
-
-From the app root:
-
-```bash
-cd "/Users/aymzz/Developer/Hackathon Claude  2026/CareFlow/clinic-assistant-mvp"
-npm run dev
-```
-
-To support Twilio callbacks locally:
-
-```bash
-ngrok http 3000
-```
-
-Then set:
-
-- `PUBLIC_BASE_URL=https://<your-ngrok-domain>`
-
-and restart `npm run dev`.
+- triage quality depends on Claude availability and org limits
 
 ## Current Manual Test Flow
 
-1. Start app locally
-2. Start ngrok
-3. Ensure `PUBLIC_BASE_URL` matches current ngrok URL
-4. Enter:
-   - full name
-   - health card number
-   - phone number
-   - location
-   - symptoms
-5. Complete Claude triage conversation
-6. Click `Continue to clinic search`
-7. Click `Call clinic`
-8. Answer the phone
-9. Let Twilio collect availability
-10. After appointment time is captured:
-    - appointment should confirm in dashboard
-    - SMS should attempt delivery
-    - confirmation card should show SMS status
+1. Start `npm run dev`
+2. Start `ngrok http 3000`
+3. Verify `PUBLIC_BASE_URL`
+4. Enter patient info, location, and symptoms
+5. Complete triage
+6. Continue to clinic search
+7. Start the call
+8. Watch the live call transcript
+9. Wait for confirmation redirect
+10. Verify SMS status
 
-## Pending / Possible Next Improvements
+## Current Summary
 
-These are not yet implemented, but they were discussed or are natural next steps:
+The app now does significantly more than a simple booking form.
 
-- deploy app publicly to reduce voice latency and remove ngrok dependency
-- optionally switch live phone flow fully to Twilio built-in voice for speed
-- shorten long voice prompts, especially confirmation prompts
-- possibly make TTS strategy hybrid:
-  - static / cached audio for repeated prompts
-  - dynamic generation only when needed
-- replace hardcoded destination clinic number with real selected clinic phone routing
-- add persistent storage if the project moves beyond demo state
+Current build includes:
 
-## Current Git/Workspace Snapshot
+- AI triage
+- visual body heatmap
+- clinic routing
+- explicit 4-step UX
+- automated phone booking
+- live call transcript
+- premium confirmation page
+- SMS confirmation
+- branded polished UI
 
-Observed modified files during logging:
+Most important architectural reality:
 
-- `clinic-assistant-mvp/package-lock.json`
-- `clinic-assistant-mvp/src/app/api/appointment/confirm/route.ts`
-- `clinic-assistant-mvp/src/app/api/call/route.ts`
-- `clinic-assistant-mvp/src/app/api/triage/route.ts`
-- `clinic-assistant-mvp/src/app/api/tts/route.ts`
-- `clinic-assistant-mvp/src/app/api/twilio/voice/route.ts`
-- `clinic-assistant-mvp/src/app/page.tsx`
-
-Untracked / unrelated:
-
-- `.DS_Store`
-
-## Practical Summary
-
-At this point, the app has moved well beyond the original static MVP.
-
-The current build now includes:
-
-- conversational AI triage with Claude
-- chat-style symptom conversation UI
-- body heatmap visualization for diagnosis areas
-- explicit 4-step booking navigation with progress bar
-- clinic lookup continuation after triage
-- smoother transition loader when moving into clinic search
-- outbound Twilio call booking flow
-- custom secretary confirmation logic
-- repeated spelling of patient details
-- configurable TTS path with Twilio fallback
-- automatic SMS appointment confirmation
-- dashboard confirmation status including SMS outcome
-
-The most important architectural reality to remember is:
-
-- triage is now AI-driven
-- booking confirmation is still stored in memory
-- voice and SMS rely on Twilio
-- local development still depends on ngrok
+- triage helps determine the right level of care
+- the product is trying to reduce unnecessary emergency overload by guiding users toward the right clinic path
+- booking is still demo-oriented in a few places
+- persistence is still in memory

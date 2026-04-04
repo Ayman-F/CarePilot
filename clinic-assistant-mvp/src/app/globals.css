@@ -1,5 +1,83 @@
 @import "tailwindcss";
 
+body {
+  overflow-x: hidden;
+}
+
+.app-atmosphere {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 12%, rgba(147, 197, 253, 0.28), transparent 24%),
+    radial-gradient(circle at 88% 18%, rgba(56, 189, 248, 0.18), transparent 22%),
+    radial-gradient(circle at 72% 82%, rgba(191, 219, 254, 0.3), transparent 26%),
+    linear-gradient(180deg, #f7fbff 0%, #f8fbff 42%, #ffffff 100%);
+}
+
+.app-atmosphere::before,
+.app-atmosphere::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  border-radius: 999px;
+  filter: blur(70px);
+  pointer-events: none;
+}
+
+.app-atmosphere::before {
+  top: 6rem;
+  left: -8rem;
+  height: 22rem;
+  width: 22rem;
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.18), rgba(191, 219, 254, 0.02) 68%);
+}
+
+.app-atmosphere::after {
+  top: 28rem;
+  right: -7rem;
+  height: 20rem;
+  width: 20rem;
+  background: radial-gradient(circle, rgba(125, 211, 252, 0.18), rgba(255, 255, 255, 0.04) 70%);
+}
+
+.app-atmosphere-shell {
+  position: relative;
+  z-index: 1;
+}
+
+.app-atmosphere-soft {
+  position: relative;
+  overflow: hidden;
+}
+
+.app-atmosphere-soft::before {
+  content: "";
+  position: absolute;
+  inset: -12% auto auto -8%;
+  z-index: -1;
+  height: 18rem;
+  width: 18rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(186, 230, 253, 0.3), rgba(255, 255, 255, 0) 72%);
+  filter: blur(36px);
+  pointer-events: none;
+}
+
+.app-atmosphere-soft::after {
+  content: "";
+  position: absolute;
+  right: -8%;
+  bottom: -12%;
+  z-index: -1;
+  height: 16rem;
+  width: 16rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(191, 219, 254, 0.34), rgba(255, 255, 255, 0) 72%);
+  filter: blur(34px);
+  pointer-events: none;
+}
+
 .skeleton {
   position: relative;
   overflow: hidden;

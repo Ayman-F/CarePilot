@@ -1,155 +1,149 @@
-# CareFlow
+# CarePilot
 
-CareFlow is a healthcare booking assistant MVP built for a hackathon. It combines conversational triage, clinic lookup, outbound phone booking, and SMS confirmation in a single Next.js app.
+CarePilot is a healthcare triage-and-booking assistant built as a hackathon MVP.
 
-The current experience is:
+It helps patients describe symptoms in plain language, receive short medical guidance, get routed toward the right nearby clinic, and complete appointment booking through an automated outbound phone flow.
 
-1. User enters patient details, including phone number
-2. User chats with Claude for short multi-turn triage
-3. Claude returns urgency, recommendations, and wait-care tips
-4. User explicitly continues to clinic search
-5. App finds nearby clinics
-6. User starts an outbound Twilio call to book an appointment
-7. Twilio voice flow captures appointment timing
-8. App saves the appointment and attempts an SMS confirmation
-9. Dashboard shows appointment details and SMS status
+## Why This Project Matters
 
-## Problem
+Emergency services are often overloaded by patients who are worried, uncomfortable, and unsure where to go next.
 
-Booking a medical appointment can be slow, unclear, and stressful. Patients often have to:
+CarePilot is designed to reduce that uncertainty by:
 
-- describe symptoms without guidance
-- search for clinics manually
-- call clinics one by one
-- keep track of confirmation details themselves
+- running a short conversational triage before booking
+- identifying urgency as `LOW`, `MEDIUM`, or `HIGH`
+- surfacing practical wait-care guidance while the patient is still at home
+- showing when emergency evaluation may be safer
+- routing non-emergency users toward nearby clinics instead of defaulting everyone to the ER
+- reducing friction in the final booking step by placing the clinic call automatically
 
-CareFlow explores a calmer booking flow that gives guidance before booking, automates the clinic call, and surfaces a clean confirmation state afterward.
+The goal is not to replace clinicians or emergency services. The goal is to help more patients reach the right level of care faster, with better guidance and less unnecessary emergency congestion.
 
-## What The App Does
+## What CarePilot Does
 
-### Claude triage chat
+### 1. Conversational symptom triage
 
-- Uses Anthropic Claude for multi-turn symptom triage
-- Asks follow-up questions when needed
-- Returns a structured final result with:
+- The user enters identity and location details.
+- The user chats with Claude in a short triage conversation.
+- Claude can ask targeted follow-up questions when needed.
+- The final result includes:
   - urgency level
-  - summary paragraph
-  - recommendations
-  - what to do while waiting
-- Shows stronger warning states for severe cases
-- Does not auto-jump to clinics until the user explicitly continues
+  - assistant summary
+  - practical recommendations
+  - wait-care tips
+  - emergency warning flag
+  - optional body heatmap data for affected regions
 
-### Clinic lookup
+### 2. Visual triage output
 
-- Searches for nearby clinics based on user location
-- Uses OpenStreetMap geocoding / Overpass lookup
-- Falls back to hardcoded Montreal clinics if lookup fails
+- A body heatmap highlights the area involved in the complaint.
+- Severity is color-coded:
+  - yellow for low
+  - orange for medium
+  - red for high
+- This makes the result easier to scan and feel more tangible to the patient.
 
-### Outbound phone booking
+### 3. Safer clinic routing
 
-- Uses Twilio to place a real outbound call
-- Runs a server-side Twilio voice flow to:
-  - ask whether there is availability
-  - capture date / time
-  - repeat patient name
-  - repeat health card number
-  - ask whether the details were noted
-- The opening phone prompt includes a short pause before speaking
+- After triage, the user explicitly continues to clinic search.
+- The app looks up nearby clinics based on the user’s location.
+- If live clinic lookup is unavailable, the app falls back gracefully to known clinic options so the experience can continue.
 
-### Voice options
+### 4. Automated phone booking
 
-- Supports Twilio built-in voice output
-- Supports optional ElevenLabs TTS for higher-quality prompts
-- Can fall back to Twilio voice if ElevenLabs is disabled or unavailable
+- The app uses Twilio to place an outbound booking call.
+- The voice flow asks about:
+  - availability
+  - earliest available date if needed
+  - appointment time
+  - confirmation that patient details were noted
+- Patient name and health card number are repeated carefully during the call.
 
-### Appointment confirmation
+### 5. Confirmation and SMS
 
-- Stores the most recent appointment confirmation in memory
-- Attempts to send an SMS confirmation via Twilio to the patient phone number
-- Shows a confirmation box in the dashboard with:
-  - patient name
-  - clinic name
-  - appointment date / time
+- Once booking is captured, the appointment is stored in memory.
+- The app attempts to send an SMS confirmation to the patient.
+- A premium confirmation page shows:
+  - appointment details
+  - a completed booking timeline
   - SMS delivery status
 
-## Current Feature Summary
+### 6. Premium UX features
 
-- Single-page booking flow
-- Patient info capture
-- Required phone number for SMS confirmation
-- Claude-powered multi-turn triage
-- Explicit continue-to-clinic step
-- Nearby clinic search
-- Twilio outbound booking call
-- Optional ElevenLabs phone voice
-- Character-by-character spelling of name and health card during confirmation
-- Appointment confirmation dashboard
-- SMS confirmation to the patient
+The current build also includes:
+
+- chat-style Step 2 symptom interface
+- persistent 4-step progress navigation
+- branded CarePilot logo
+- polished blue-and-white atmospheric background treatment
+- live on-screen Twilio conversation panel during the call
+- premium confirmation page after booking
+
+## Current User Flow
+
+1. Enter patient information and location
+2. Chat with Claude for triage
+3. Review urgency, recommendations, and heatmap
+4. Continue to nearby clinic search
+5. Start the booking call
+6. Watch the live phone conversation update on screen
+7. Receive appointment confirmation
+8. Receive SMS confirmation if Twilio messaging succeeds
+
+## Core Product Value
+
+CarePilot improves triage and clinic access in three important ways:
+
+### Better symptom guidance before booking
+
+Instead of immediately searching randomly for clinics, the user first receives a structured triage conversation and tailored recommendations.
+
+### Better routing away from unnecessary emergency use
+
+Users with lower-acuity or moderate symptoms can be directed toward clinic care instead of defaulting to emergency services, while still clearly warning when symptoms sound unsafe or urgent.
+
+### Better patient confidence while waiting
+
+Even before the booking is completed, the patient already has:
+
+- a clearer understanding of urgency
+- guidance on what to monitor
+- comfort and safety recommendations while waiting
 
 ## Tech Stack
-
-### Frontend
 
 - Next.js 16
 - React 19
 - TypeScript
 - Tailwind CSS
+- Anthropic Claude API for triage
+- Twilio for outbound voice and SMS
+- ElevenLabs for optional TTS
+- OpenStreetMap Nominatim + Overpass for clinic lookup
 
-### AI
+## Running The Project Locally
 
-- Anthropic Claude API for triage conversation
+The actual app lives inside the `clinic-assistant-mvp` folder.
 
-### Voice and telephony
+### 1. Go to the app folder
 
-- Twilio for outbound calls and SMS
-- ElevenLabs for optional text-to-speech
+```bash
+cd "/Users/aymzz/Developer/Hackathon Claude  2026/CareFlow/clinic-assistant-mvp"
+```
 
-### Data / services
-
-- OpenStreetMap Nominatim
-- Overpass API
-
-## Architecture Notes
-
-- The app is a single Next.js project
-- Triage is AI-driven, but booking flow logic is still app-controlled
-- Appointment confirmation is stored in memory only
-- Twilio handles calling and speech collection
-- ElevenLabs is optional and only used for voice generation
-
-## Important Current Limitations
-
-### In-memory appointment storage
-
-Appointment confirmations are not persisted to a database. Restarting the dev server clears them.
-
-### Local development depends on a public callback URL
-
-For Twilio to reach local API routes, `PUBLIC_BASE_URL` must point to a live ngrok URL.
-
-### Selected clinic dialing is still not fully dynamic
-
-The current call route still uses a hardcoded outbound destination number in the backend, so the selected clinic card is not yet guaranteed to be the true number being dialed.
-
-### AI triage depends on Anthropic availability
-
-If Claude is unavailable or misconfigured, triage will surface an explicit error instead of falling back silently.
-
-## Disclaimer
-
-This application does not provide medical advice or diagnosis. If symptoms are severe, unsafe, or urgent, users should seek emergency care or call emergency services immediately.
-
-## Local Setup
-
-### 1. Install dependencies
+### 2. Install dependencies
 
 ```bash
 npm install
 ```
 
-### 2. Create `.env.local`
+### 3. Create `.env.local`
 
-In `clinic-assistant-mvp/.env.local` add:
+Add this file at:
+
+`clinic-assistant-mvp/.env.local`
+
+Example:
 
 ```env
 TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -167,21 +161,22 @@ ELEVENLABS_MODEL_ID=eleven_flash_v2_5
 
 Notes:
 
+- `ANTHROPIC_API_KEY` is required for triage
 - `PUBLIC_BASE_URL` must be publicly reachable by Twilio
-- `ANTHROPIC_API_KEY` is required for Claude triage
-- ElevenLabs variables are optional if you want to use Twilio built-in voice instead
+- ElevenLabs variables are optional if you want to fall back to Twilio voice
+- `.env.local` is ignored by git and should not be committed
 
-### 3. Run the app
+### 4. Start the app
 
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:3000`
+By default Next will try port `3000`.
 
-### 4. Expose local callbacks for Twilio
+### 5. Start ngrok for Twilio callbacks
 
-If you are developing locally, run:
+In another terminal:
 
 ```bash
 ngrok http 3000
@@ -193,28 +188,44 @@ Then set:
 PUBLIC_BASE_URL=https://your-current-ngrok-domain.ngrok-free.dev
 ```
 
-Restart the app after changing env vars.
+Restart `npm run dev` after changing `.env.local`.
 
 ## Local Test Flow
 
-1. Start `npm run dev`
-2. Start `ngrok http 3000`
-3. Verify `PUBLIC_BASE_URL` matches the live ngrok URL
-4. Enter patient details, location, and symptoms
-5. Complete the Claude triage chat
-6. Click `Continue to clinic search`
-7. Start the clinic call
-8. Answer the phone and complete the booking
-9. Check the dashboard confirmation box
-10. Check whether the patient phone received the SMS confirmation
+1. Start the app
+2. Start ngrok
+3. Confirm `PUBLIC_BASE_URL` matches the live ngrok URL
+4. Enter patient details, phone number, location, and symptoms
+5. Complete the triage conversation
+6. Continue to clinic search
+7. Start the call
+8. Answer the phone and let the Twilio booking flow run
+9. Watch the live call transcript on screen
+10. Verify the confirmation page and SMS status
 
-## Key App Files
+## Key Files
 
-- [`clinic-assistant-mvp/src/app/page.tsx`](/Users/aymzz/Developer/Hackathon%20Claude%20%202026/CareFlow/clinic-assistant-mvp/src/app/page.tsx)
-- [`clinic-assistant-mvp/src/app/api/triage/route.ts`](/Users/aymzz/Developer/Hackathon%20Claude%20%202026/CareFlow/clinic-assistant-mvp/src/app/api/triage/route.ts)
-- [`clinic-assistant-mvp/src/app/api/clinics/route.ts`](/Users/aymzz/Developer/Hackathon%20Claude%20%202026/CareFlow/clinic-assistant-mvp/src/app/api/clinics/route.ts)
-- [`clinic-assistant-mvp/src/app/api/call/route.ts`](/Users/aymzz/Developer/Hackathon%20Claude%20%202026/CareFlow/clinic-assistant-mvp/src/app/api/call/route.ts)
-- [`clinic-assistant-mvp/src/app/api/twilio/voice/route.ts`](/Users/aymzz/Developer/Hackathon%20Claude%20%202026/CareFlow/clinic-assistant-mvp/src/app/api/twilio/voice/route.ts)
-- [`clinic-assistant-mvp/src/app/api/appointment/confirm/route.ts`](/Users/aymzz/Developer/Hackathon%20Claude%20%202026/CareFlow/clinic-assistant-mvp/src/app/api/appointment/confirm/route.ts)
-- [`clinic-assistant-mvp/src/app/api/tts/route.ts`](/Users/aymzz/Developer/Hackathon%20Claude%20%202026/CareFlow/clinic-assistant-mvp/src/app/api/tts/route.ts)
-- [`clinic-assistant-mvp/PROJECT_LOG.md`](/Users/aymzz/Developer/Hackathon%20Claude%20%202026/CareFlow/clinic-assistant-mvp/PROJECT_LOG.md)
+- `clinic-assistant-mvp/src/app/page.tsx`
+- `clinic-assistant-mvp/src/app/confirmation/page.tsx`
+- `clinic-assistant-mvp/src/app/api/triage/route.ts`
+- `clinic-assistant-mvp/src/app/api/clinics/route.ts`
+- `clinic-assistant-mvp/src/app/api/call/route.ts`
+- `clinic-assistant-mvp/src/app/api/call/transcript/route.ts`
+- `clinic-assistant-mvp/src/app/api/twilio/voice/route.ts`
+- `clinic-assistant-mvp/src/app/api/appointment/confirm/route.ts`
+- `clinic-assistant-mvp/src/app/components/body-heatmap.tsx`
+- `clinic-assistant-mvp/PROJECT_LOG.md`
+
+## Current Limitations
+
+- Appointment storage is in memory only
+- Local Twilio development still depends on ngrok
+- Clinic lookup can fall back when OpenStreetMap services are slow or unavailable
+- The outbound demo call currently uses a hardcoded destination number in the backend
+- Claude triage still depends on Anthropic availability and rate limits
+
+## Disclaimer
+
+CarePilot does not provide diagnosis or replace professional medical judgment.
+
+If symptoms are severe, unsafe, or rapidly worsening, patients should seek emergency care immediately or call emergency services.

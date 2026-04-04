@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { BodyHeatmap } from "./components/body-heatmap";
 import type { BodyHeatmapEntry } from "./components/body-heatmap";
@@ -1256,7 +1257,7 @@ export default function Home() {
                                 : "text-white/75"
                             }`}
                           >
-                            {message.role === "assistant" ? "CareFlow" : "Clinic"}
+                            {message.role === "assistant" ? "CarePilot" : "Clinic"}
                           </div>
                           <div className="mt-1 whitespace-pre-wrap text-sm leading-6">
                             {message.content}
@@ -1343,12 +1344,20 @@ export default function Home() {
   }, [liveCallMessages]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50">
-      <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/85 backdrop-blur">
+    <main className="app-atmosphere min-h-screen">
+      <div className="app-atmosphere-shell">
+      <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-white/78 backdrop-blur-xl">
         <div className="mx-auto w-full max-w-6xl px-6 py-4">
-          <div className="flex flex-col gap-1">
-            <div className="text-2xl font-semibold text-slate-900">
-              Clinic Assistant
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center">
+              <Image
+                src="/carepilot-logo.png"
+                alt="CarePilot"
+                width={210}
+                height={58}
+                className="h-auto w-[170px] sm:w-[210px]"
+                priority
+              />
             </div>
             <div className="text-sm text-slate-600">
               Find a nearby clinic and book faster
@@ -1368,7 +1377,7 @@ export default function Home() {
       </header>
 
       <div className="mx-auto w-full max-w-6xl px-6 py-10">
-        <section className="mb-6 rounded-2xl border border-slate-200/70 bg-white/70 px-6 py-6 shadow-sm backdrop-blur">
+        <section className="app-atmosphere-soft mb-6 rounded-2xl border border-slate-200/70 bg-white/72 px-6 py-6 shadow-sm backdrop-blur-xl">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <div className="text-2xl font-semibold text-slate-900">
@@ -1453,6 +1462,7 @@ export default function Home() {
         </section>
 
         {mainSection}
+      </div>
       </div>
     </main>
   );

@@ -51,8 +51,17 @@ type TriageResponse = TriageFollowUpResponse | TriageFinalResponse;
 
 const MAX_ASSISTANT_FOLLOW_UPS = 4;
 const DEFAULT_MODEL = "claude-haiku-4-5";
+const MAX_MESSAGE_CHARS = 500;
+const MAX_CONTEXT_MESSAGES = 6;
 
 const getEnv = (key: string) => process.env[key]?.trim() ?? "";
+
+const compactMessageContent = (content: string) =>
+  content
+    .replace(/\nLocation:\s*[^\n]+/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_MESSAGE_CHARS);
 
 const sanitizeMessages = (messages: TriageRequest["messages"]): ChatMessage[] =>
   (messages ?? [])
@@ -67,9 +76,9 @@ const sanitizeMessages = (messages: TriageRequest["messages"]): ChatMessage[] =>
     )
     .map((message) => ({
       role: message.role,
-      content: message.content.trim().slice(0, 1200),
+      content: compactMessageContent(message.content),
     }))
-    .slice(-10);
+    .slice(-MAX_CONTEXT_MESSAGES);
 
 const extractTextBlocks = (
   content: Array<{ type?: string; text?: string }> | undefined,
@@ -186,45 +195,38 @@ const validateResponse = (value: unknown): TriageResponse | null => {
 };
 
 const buildSystemPrompt = (location: string, forceFinal: boolean) => `
-You are a careful clinic triage assistant inside a healthcare booking app.
-Your job is to run a short triage conversation, not to provide a diagnosis.
+You are a careful clinic triage assistant in a healthcare booking app.
+Do short triage only. Do not diagnose.
 
-Goals:
-- Ask only short, necessary follow-up questions.
-- Decide urgency as LOW, MEDIUM, or HIGH.
-- If symptoms sound severe or unsafe, clearly recommend emergency care.
-- Give practical self-care or comfort guidance while waiting for an appointment.
-- Keep your language calm, brief, and plain.
-- Avoid diagnosis claims and avoid pretending certainty.
-- When there is a clearly affected body area, include it in body_heatmap using only the allowed region keys.
-- If the affected area is unclear, omit body_heatmap entirely.
+Priorities:
+- ask only short necessary follow-up questions
+- decide urgency as LOW, MEDIUM, or HIGH
+- clearly recommend emergency care if symptoms sound unsafe
+- give brief practical waiting advice
+- keep language calm, brief, and plain
+- include body_heatmap only when the affected area is clear
 
 Known location: ${location || "Unknown"}.
-${forceFinal ? "You must return a final triage result now. Do not ask another question." : "If you already have enough information, return a final triage result. Otherwise ask one short follow-up question."}
+${forceFinal ? "Return a final triage result now. Do not ask another question." : "If you have enough information, return a final triage result. Otherwise ask one short follow-up question."}
 
-Return JSON only, with no markdown fences, no extra text, and no commentary outside JSON.
+Return JSON only.
 
-Allowed JSON shapes:
+Follow-up shape:
+{"status":"needs_more_info","assistant_message":"one short follow-up question"}
 
-For a follow-up question:
+Final shape:
 {
-  "status": "needs_more_info",
-  "assistant_message": "one short follow-up question"
-}
-
-For a final result:
-{
-  "status": "final",
-  "assistant_message": "brief conversational response summarizing urgency and next steps",
-  "gravity_level": "LOW" | "MEDIUM" | "HIGH",
-  "recommendations": ["short recommendation", "short recommendation"],
-  "summary_paragraph": "2-3 sentence summary of the situation and next step",
-  "wait_care_tips": ["short tip", "short tip"],
-  "emergency_warning": true | false,
-  "body_heatmap": [
+  "status":"final",
+  "assistant_message":"brief urgency and next-step summary",
+  "gravity_level":"LOW" | "MEDIUM" | "HIGH",
+  "recommendations":["short recommendation","short recommendation"],
+  "summary_paragraph":"2-3 short sentences",
+  "wait_care_tips":["short tip","short tip"],
+  "emergency_warning":true | false,
+  "body_heatmap":[
     {
-      "region": "head" | "neck" | "chest" | "left_arm" | "right_arm" | "abdomen" | "pelvis" | "left_leg" | "right_leg",
-      "severity": "LOW" | "MEDIUM" | "HIGH"
+      "region":"head" | "neck" | "chest" | "left_arm" | "right_arm" | "abdomen" | "pelvis" | "left_leg" | "right_leg",
+      "severity":"LOW" | "MEDIUM" | "HIGH"
     }
   ]
 }
@@ -265,7 +267,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model: DEFAULT_MODEL,
-        max_tokens: 700,
+        max_tokens: 450,
         temperature: 0.3,
         system: buildSystemPrompt(location, forceFinal),
         messages: messages.map((message) => ({
@@ -281,10 +283,16 @@ export async function POST(request: Request) {
         status: anthropicResponse.status,
         body: details,
       });
+      const isRateLimited =
+        anthropicResponse.status === 429 || details.includes("rate_limit_error");
       return NextResponse.json(
         {
-          error: "Claude triage is unavailable right now.",
-          details,
+          error: isRateLimited
+            ? "Claude triage is temporarily busy."
+            : "Claude triage is unavailable right now.",
+          details: isRateLimited
+            ? "Too much conversation context was sent at once. Please try again in a moment or send a shorter symptom reply."
+            : details,
         },
         { status: anthropicResponse.status },
       );

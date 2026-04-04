@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -94,7 +95,7 @@ export default function ConfirmationPage() {
 
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.14),_transparent_32%),linear-gradient(180deg,_#f6fffb_0%,_#f8fafc_45%,_#ffffff_100%)]">
+      <main className="app-atmosphere min-h-screen">
         <div className="mx-auto flex min-h-screen w-full max-w-5xl items-center justify-center px-6 py-16">
           <div className="rounded-3xl border border-emerald-100 bg-white/90 px-8 py-10 text-center shadow-xl shadow-emerald-100/60 backdrop-blur">
             <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-500" />
@@ -112,7 +113,7 @@ export default function ConfirmationPage() {
 
   if (!appointment) {
     return (
-      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.08),_transparent_34%),linear-gradient(180deg,_#f8fafc_0%,_#ffffff_100%)]">
+      <main className="app-atmosphere min-h-screen">
         <div className="mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-6 py-16">
           <div className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white/90 px-8 py-10 text-center shadow-xl shadow-slate-200/60 backdrop-blur">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-slate-500">
@@ -151,9 +152,19 @@ export default function ConfirmationPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.16),_transparent_28%),linear-gradient(180deg,_#f6fffb_0%,_#f8fafc_48%,_#ffffff_100%)]">
-      <div className="mx-auto w-full max-w-5xl px-6 py-12">
-        <div className="rounded-[2rem] border border-emerald-100/80 bg-white/85 p-6 shadow-2xl shadow-emerald-100/70 backdrop-blur md:p-8">
+    <main className="app-atmosphere min-h-screen">
+      <div className="app-atmosphere-shell mx-auto w-full max-w-5xl px-6 py-12">
+        <div className="mb-6 flex justify-center lg:justify-start">
+          <Image
+            src="/carepilot-logo.png"
+            alt="CarePilot"
+            width={230}
+            height={64}
+            className="h-auto w-[190px] sm:w-[230px]"
+            priority
+          />
+        </div>
+        <div className="app-atmosphere-soft rounded-[2rem] border border-emerald-100/80 bg-white/86 p-6 shadow-2xl shadow-emerald-100/70 backdrop-blur md:p-8">
           <div className="rounded-[1.75rem] border border-emerald-200/80 bg-[linear-gradient(135deg,_rgba(236,253,245,0.95),_rgba(240,253,250,0.88)_48%,_rgba(255,255,255,0.96)_100%)] px-6 py-8">
             <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
               <div className="max-w-2xl">
