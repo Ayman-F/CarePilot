@@ -59,10 +59,12 @@ The entire flow is designed to feel **calm, professional, and trustworthy**, sim
 - **React 19**
 - **TypeScript**
 - **Tailwind CSS**
+  
+- OpenStreetMap Nominatim + Overpass API
 
 ### Voice & Telephony
-- **Twilio** – real outbound phone calls
-- **ElevenLabs** – low-latency text-to-speech
+- **Twilio Voice** – real outbound phone calls
+- **ElevenLabs TTS** – low-latency text-to-speech
 
 ### Architecture Choices
 - Single-page wizard instead of multi-route complexity
