@@ -45,7 +45,6 @@ ELEVENLABS_VOICE_ID=your_voice_id
 Notes:
 - `PUBLIC_BASE_URL` must be a public URL reachable by Twilio (use ngrok for local dev).
 - ElevenLabs is used for all voice generation.
-- OpenAI is not used anywhere in this project.
 
 ### 3) Run
 ```bash
