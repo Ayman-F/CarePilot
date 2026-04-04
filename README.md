@@ -92,8 +92,33 @@ This project intentionally avoids:
 
 ---
 
-## 🚀 Running Locally
 
+## Setup🚀
+
+### 1) Install
 ```bash
 npm install
+```
+
+### 2) Environment variables
+Create `.env.local` in the project root:
+```
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_PHONE_NUMBER=+1xxxxxxxxxx
+
+PUBLIC_BASE_URL=https://your-ngrok-subdomain.ngrok-free.dev
+
+ELEVENLABS_API_KEY=sk_XXXXXXXXXXXXXXXXXXXXXXXXXXXX
+ELEVENLABS_VOICE_ID=your_voice_id
+```
+
+Notes:
+- `PUBLIC_BASE_URL` must be a public URL reachable by Twilio (use ngrok for local dev).
+- ElevenLabs is used for all voice generation.
+
+### 3) Run
+```bash
 npm run dev
+```
+Open http://localhost:3000
