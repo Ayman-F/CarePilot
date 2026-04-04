@@ -103,6 +103,7 @@ export default function Home() {
   const [activeCallSid, setActiveCallSid] = useState<string | null>(null);
   const [liveCallMessages, setLiveCallMessages] = useState<LiveCallMessage[]>([]);
   const [isTranscriptLoading, setIsTranscriptLoading] = useState(false);
+  const [isCallTranscriptActive, setIsCallTranscriptActive] = useState(false);
   const [appointment, setAppointment] = useState<{
     date: string;
     time: string;
@@ -127,6 +128,7 @@ export default function Home() {
   const patientNameInputRef = useRef<HTMLInputElement | null>(null);
   const symptomsInputRef = useRef<HTMLTextAreaElement | null>(null);
   const liveCallScrollRef = useRef<HTMLDivElement | null>(null);
+  const callTranscriptActiveRef = useRef(false);
   const router = useRouter();
 
   const disclaimer =
@@ -155,6 +157,8 @@ export default function Home() {
     setActiveCallSid(null);
     setLiveCallMessages([]);
     setIsTranscriptLoading(false);
+    setIsCallTranscriptActive(false);
+    callTranscriptActiveRef.current = false;
     setViewState("form");
   };
 
@@ -324,9 +328,13 @@ export default function Home() {
       if (!response.ok) return;
 
       const data = (await response.json()) as {
+        isActive?: boolean;
         messages?: LiveCallMessage[];
       };
 
+      const isActive = Boolean(data.isActive);
+      callTranscriptActiveRef.current = isActive;
+      setIsCallTranscriptActive(isActive);
       setLiveCallMessages(Array.isArray(data.messages) ? data.messages : []);
     } catch {
       // Keep the last successful transcript on screen if polling fails briefly.
@@ -342,20 +350,29 @@ export default function Home() {
       setActiveCallSid(null);
       setLiveCallMessages([]);
       setIsTranscriptLoading(false);
+      setIsCallTranscriptActive(false);
+      callTranscriptActiveRef.current = false;
+      setActiveStep(4);
       setUiStatus({ type: "success", message: "Appointment confirmed ✓" });
       router.replace("/confirmation");
       return;
     }
-    if (attempt >= 20) {
+    const shouldStopForEndedCall =
+      !callTranscriptActiveRef.current && attempt >= 2;
+    if (shouldStopForEndedCall || attempt >= 80) {
       setIsWaitingConfirmation(false);
       setActiveCallSid(null);
       setLiveCallMessages([]);
       setIsTranscriptLoading(false);
+      setIsCallTranscriptActive(false);
+      callTranscriptActiveRef.current = false;
       setActiveStep(3);
       setViewState("clinics");
       setUiStatus({
         type: "error",
-        message: "No confirmation received yet.",
+        message: shouldStopForEndedCall
+          ? "The call ended before an appointment was captured."
+          : "No confirmation received yet.",
       });
       return;
     }
@@ -468,6 +485,8 @@ export default function Home() {
       setActiveCallSid(null);
       setLiveCallMessages([]);
       setIsTranscriptLoading(true);
+      setIsCallTranscriptActive(true);
+      callTranscriptActiveRef.current = true;
       setActiveStep(3);
       setViewState("calling");
       setUiStatus({ type: "loading", message: "Calling clinic..." });
@@ -495,6 +514,8 @@ export default function Home() {
         setActiveCallSid(null);
         setLiveCallMessages([]);
         setIsTranscriptLoading(false);
+        setIsCallTranscriptActive(false);
+        callTranscriptActiveRef.current = false;
         setUiStatus({
           type: "error",
           message: "Call failed. Check Twilio env vars and try again.",
@@ -526,6 +547,8 @@ export default function Home() {
         setActiveCallSid(null);
         setLiveCallMessages([]);
         setIsTranscriptLoading(false);
+        setIsCallTranscriptActive(false);
+        callTranscriptActiveRef.current = false;
         setUiStatus({
           type: "error",
           message: "Call failed. Check Twilio env vars and try again.",
@@ -539,6 +562,8 @@ export default function Home() {
       setActiveCallSid(null);
       setLiveCallMessages([]);
       setIsTranscriptLoading(false);
+      setIsCallTranscriptActive(false);
+      callTranscriptActiveRef.current = false;
       setUiStatus({
         type: "error",
         message: "Call failed. Check Twilio env vars and try again.",

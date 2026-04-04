@@ -15,6 +15,8 @@ const buildResponse = (twiml: string) =>
   });
 
 const shouldUseTts = () =>
+  // Keep Twilio's built-in voice as the safe default.
+  getEnv("ENABLE_ELEVENLABS_TTS") === "true" &&
   Boolean(getEnv("ELEVENLABS_API_KEY") && getEnv("ELEVENLABS_VOICE_ID"));
 
 const buildPrompt = (baseUrl: string, text: string) => {

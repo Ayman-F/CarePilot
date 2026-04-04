@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import twilio from "twilio";
+import { initializeTranscript } from "../twilio/voice-store";
 
 type CallRequest = {
   clinicName?: string;
@@ -16,6 +17,9 @@ const getEnv = (key: string) => process.env[key]?.trim() ?? "";
 
 const sanitizeForTts = (value: string, maxLength: number) =>
   value.replace(/\s+/g, " ").trim().slice(0, maxLength);
+
+const OPENING_PROMPT =
+  "Hello, I'm calling to book a medical appointment for a patient. Do you have an appointment available for today or tomorrow?";
 
 export async function POST(request: Request) {
   try {
@@ -66,11 +70,17 @@ export async function POST(request: Request) {
     callUrl.searchParams.set("healthCardNumber", healthCardNumber);
     callUrl.searchParams.set("phoneNumber", phoneNumber);
     callUrl.searchParams.set("clinicName", clinicName);
+    const statusCallbackUrl = new URL(`${publicBaseUrl}/api/twilio/status`);
     const call = await client.calls.create({
       to: DESTINATION_NUMBER,
       from: fromNumber,
       url: callUrl.toString(),
+      statusCallback: statusCallbackUrl.toString(),
+      statusCallbackMethod: "POST",
+      statusCallbackEvent: ["completed"],
     });
+
+    initializeTranscript(call.sid, OPENING_PROMPT);
 
     return NextResponse.json({
       success: true,

@@ -36,6 +36,19 @@ const getTranscriptState = (callSid: string) => {
   return current;
 };
 
+export const initializeTranscript = (
+  callSid: string,
+  initialMessage?: string,
+) => {
+  const state = getTranscriptState(callSid);
+  state.isActive = true;
+  transcriptState.set(callSid, state);
+
+  if (initialMessage) {
+    appendTranscriptMessage(callSid, "assistant", initialMessage);
+  }
+};
+
 export const clearCallArtifacts = (callSid: string) => {
   callState.delete(callSid);
   transcriptState.delete(callSid);
