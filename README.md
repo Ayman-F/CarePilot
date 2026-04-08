@@ -32,7 +32,7 @@ Instead of leaving users to guess where to go, CarePilot:
 
 ## 🖼️ Screenshots
 
-### Triage Output + Heatmap
+### Triage 
 ![Call](./assets/demo4.png)
 
 ### Appointment Confirmation
