@@ -4,6 +4,8 @@ CarePilot is a healthcare triage-and-booking assistant built as a hackathon MVP.
 
 It helps patients describe symptoms in plain language, receive short medical guidance, get routed toward the right nearby clinic, and complete appointment booking through an automated outbound phone flow.
 
+CarePilot uses a lightweight RAG-style triage layer so Claude can combine its own reasoning with trusted medical triage documentation for more grounded recommendations.
+
 ## Why This Project Matters
 
 Emergency services are often overloaded by patients who are worried, uncomfortable, and unsure where to go next.
@@ -25,6 +27,7 @@ The goal is not to replace clinicians or emergency services. The goal is to help
 
 - The user enters identity and location details.
 - The user chats with Claude in a short triage conversation.
+- A lightweight retrieval step pulls the most relevant excerpts from medical triage documentation before Claude answers.
 - Claude can ask targeted follow-up questions when needed.
 - The final result includes:
   - urgency level
@@ -96,7 +99,7 @@ CarePilot improves triage and clinic access in three important ways:
 
 ### Better symptom guidance before booking
 
-Instead of immediately searching randomly for clinics, the user first receives a structured triage conversation and tailored recommendations.
+Instead of immediately searching randomly for clinics, the user first receives a structured triage conversation and tailored recommendations. These recommendations are improved by combining Claude's general reasoning with relevant medical triage documentation when it applies.
 
 ### Better routing away from unnecessary emergency use
 
@@ -117,9 +120,39 @@ Even before the booking is completed, the patient already has:
 - TypeScript
 - Tailwind CSS
 - Anthropic Claude API for triage
+- Lightweight RAG-style retrieval layer for medical triage documentation
 - Twilio for outbound voice and SMS
 - ElevenLabs for optional TTS
 - OpenStreetMap Nominatim + Overpass for clinic lookup
+
+## RAG Triage Layer
+
+CarePilot uses a lightweight Retrieval-Augmented Generation approach for medical triage.
+
+The goal is not to replace Claude with a document-only system. Instead, the app retrieves the most relevant snippets from trusted medical triage documentation and provides them to Claude as optional context before generating recommendations.
+
+This approach improves:
+
+- accuracy of symptom guidance
+- consistency of recommendations
+- grounding in medical triage documentation
+- safety when handling uncertain or borderline cases
+
+The RAG layer stays lightweight:
+
+- no heavy vector database is required
+- no full-document injection on every request
+- no replacement of Claude's own reasoning
+- document context is only used when relevant
+
+In practice, the triage flow is:
+
+1. User sends symptoms and follow-up answers
+2. The backend identifies relevant medical triage passages
+3. Claude receives both the conversation and the retrieved medical context
+4. Claude returns urgency, recommendations, wait-care guidance, and emergency warnings
+
+This keeps the experience fast and flexible while making recommendations more medically grounded.
 
 ## Running The Project Locally
 
