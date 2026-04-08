@@ -1,4 +1,4 @@
-# CareFlow
+# CarePilot
 
 CarePilot is a healthcare triage-and-booking assistant built as a hackathon MVP.
 
