@@ -35,6 +35,9 @@ Instead of leaving users to guess where to go, CarePilot:
 ### Triage 
 ![Call](./assets/demo4.png)
 
+### Choosing Clinic based on location 
+![Call](./assets/demo2.png)
+
 ### Appointment Confirmation
 ![Confirmation](./assets/demo.png)
 
